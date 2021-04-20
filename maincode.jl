@@ -212,6 +212,41 @@ struct OptimizationResult
     end
 end
 
+function findminima(p0,initialstepsize,tolerance,
+                G::ConstraintVariety,
+                evaluateobjectivefunctiongradient::Function;
+                maxseconds=100, maxlocalsteps=50)
+    initialtime = Base.time()
+    keepgoing, converged = true, false
+    p = copy(p0) # initialize before updating `p` below
+    ε0 = initialstepsize # initialize before updating `ε0` below
+    ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
+    lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,converged,0,0)
+
+    while keepgoing
+        if (Base.time() - initialtime) > maxseconds
+            keepgoing = false
+            println("We ran out of time... Try setting `maxseconds` to a larger value than $maxseconds")
+        end
+        # update LSR, only store the *last local run*
+        lastLSR = takelocalsteps(p, ε0, tolerance, G, evaluateobjectivefunctiongradient, maxsteps=maxlocalsteps)
+        if lastLSR.converged
+            keepgoing = false
+            converged = true
+            push!(ps, lastLSR.newsuggestedstartpoint)
+            return OptimizationResult(ps,p0,initialstepsize,tolerance,converged,lastLSR,G,evaluateobjectivefunctiongradient)
+        else
+            p = lastLSR.newsuggestedstartpoint
+            ε0 = lastLSR.newsuggestedstepsize # update and try again!
+            push!(ps, p) # record this *main step*
+        end
+    end
+    return OptimizationResult(ps,p0,initialstepsize,tolerance,converged,lastLSR,G,evaluateobjectivefunctiongradient)
+end
+
+# Below are functions `watch` and `draw`
+# to visualize low-dimensional examples
+
 function watch(result::OptimizationResult; totalseconds=5.0)
     ps = result.computedpoints
     samples = result.constraintvariety.samples
@@ -258,38 +293,6 @@ function watch(result::OptimizationResult; totalseconds=5.0)
         end
     end
     return gif(anim, "watch$startingtime.gif", fps=framespersecond)
-end
-
-function findminima(p0,initialstepsize,tolerance,
-                G::ConstraintVariety,
-                evaluateobjectivefunctiongradient::Function;
-                maxseconds=100, maxlocalsteps=50)
-    initialtime = Base.time()
-    keepgoing, converged = true, false
-    p = copy(p0) # initialize before updating `p` below
-    ε0 = initialstepsize # initialize before updating `ε0` below
-    ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
-    lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,converged,0,0)
-
-    while keepgoing
-        if (Base.time() - initialtime) > maxseconds
-            keepgoing = false
-            println("We ran out of time... Try setting `maxseconds` to a larger value than $maxseconds")
-        end
-        # update LSR, only store the *last local run*
-        lastLSR = takelocalsteps(p, ε0, tolerance, G, evaluateobjectivefunctiongradient, maxsteps=maxlocalsteps)
-        if lastLSR.converged
-            keepgoing = false
-            converged = true
-            push!(ps, lastLSR.newsuggestedstartpoint)
-            return OptimizationResult(ps,p0,initialstepsize,tolerance,converged,lastLSR,G,evaluateobjectivefunctiongradient)
-        else
-            p = lastLSR.newsuggestedstartpoint
-            ε0 = lastLSR.newsuggestedstepsize # update and try again!
-            push!(ps, p) # record this *main step*
-        end
-    end
-    return OptimizationResult(ps,p0,initialstepsize,tolerance,converged,lastLSR,G,evaluateobjectivefunctiongradient)
 end
 
 function draw(result::OptimizationResult)
