@@ -41,4 +41,4 @@ Now we can `watch` our result.
 watch(result)
 ```
 which produces the following output:
-![output of watch](watch2021-04-20T11/29/41.721.gif)
+![](watch2021-04-20T11/29/41.721.gif)
