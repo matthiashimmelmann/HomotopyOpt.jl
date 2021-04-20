@@ -1,8 +1,14 @@
 # ConstrainedOptimizationByParameterHomotopy.jl
 
 This collects code that solves a constrained optimization problem which minimizes an objective function restricted to an algebraic variety.
-The main idea is to use parameter homotopy (using `HomotopyContinuation.jl`) to attempt a line search in the direction of the projected gradient vector.
-Parallel transport is also used to decide when to slow down and search more carefully.
+There are two main ideas. First, we use parameter homotopy (using `HomotopyContinuation.jl`) to attempt a line search in the direction of the projected gradient vector.
+Because we use parameter homotopy, this *line search* is really a *curve search* along a curve that stays on the constraint variety.
+
+Second, we use *parallel transport* to decide when to slow down and search more carefully. Whenever we observe that the norm of the projected
+gradient has been decreasing and then starts to increase, we parallel transport a projected gradient from one tangent space to the other,
+compute their dot product, and if it's negative, that means the projected gradient has *reversed direction*, so that we skipped past a critical point.
+If this happens, we go back a bit, and slow down our search, looking more carefully in that neighborhood.
+The end result is that we slow down in the correct places to find critical points where the projected gradient vector is essentially the zero vector.
 
 ```julia
 include("maincode.jl")
@@ -41,4 +47,5 @@ Now we can `watch` our result.
 watch(result)
 ```
 which produces the following output:
-![](watch2021-04-20T11/29/41.721.gif)
+
+![](https://github.com/alexheaton2/ConstrainedOptimizationByParameterHomotopy.jl/blob/firstbranch/watch2021-04-20T11:29:41.721.gif)
