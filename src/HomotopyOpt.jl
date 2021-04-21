@@ -1,4 +1,15 @@
-using HomotopyContinuation, LinearAlgebra, ImplicitPlots, Plots, Statistics, Dates
+module HomotopyOpt
+
+import HomotopyContinuation
+import LinearAlgebra
+import ImplicitPlots: implicit_plot
+import Plots: scatter!, frame, plot, Animation, gif
+import Statistics
+
+export ConstraintVariety,
+       findminima,
+       watch,
+       draw
 
 # this code modifies `ConstrainedOptimizationByParameterHomotopy.jl`
 # so that instead of an ObjectiveFunction, you specify a function called `evaluateobjectivefunctiongradient`
@@ -19,7 +30,7 @@ struct ConstraintVariety
         randResult = HomotopyContinuation.solve(eqnz; target_subspace = randL, variables=varz)
         Ωs = []
         for _ in 1:numsamples
-            newΩs = solve(
+            newΩs = HomotopyContinuation.solve(
                     eqnz,
                     HomotopyContinuation.solutions(randResult);
                     variables = varz,
@@ -28,7 +39,7 @@ struct ConstraintVariety
                     transform_result = (R,p) -> HomotopyContinuation.real_solutions(R),
                     flatten = true
             )
-            realsols = real_solutions(newΩs)
+            realsols = HomotopyContinuation.real_solutions(newΩs)
             push!(Ωs, realsols...)
         end
         new(varz,eqnz,dg,N,d,Ωs)
@@ -44,7 +55,7 @@ function computesystem(p, G::ConstraintVariety,
                 evaluateobjectivefunctiongradient::Function)
 
     dgp = HomotopyContinuation.evaluate(G.jacobian, G.variables => p)
-    Up,_ = qr( transpose(dgp) )
+    Up,_ = LinearAlgebra.qr( LinearAlgebra.transpose(dgp) )
     Np = Up[:, 1:(G.ambientdimension - G.dimensionofvariety)] # gives ONB for N_p(G) normal space
 
     # we evaluate the gradient of the obj fcn at the point `p`
@@ -165,8 +176,8 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
             push!(Ns, Nq)
             push!(Ts, Tq)
             push!(vs, vq)
-            push!(ns, norm(vq))
-            if norm(vq) < tolerance
+            push!(ns, LinearAlgebra.norm(vq))
+            if LinearAlgebra.norm(vq) < tolerance
                 keepgoing = false
                 converged = true
                 newp = q
@@ -258,7 +269,7 @@ function watch(result::OptimizationResult; totalseconds=5.0)
     if framespersecond > 45
         framespersecond = 45
     end
-    startingtime = Dates.now() #Base.time()
+    startingtime = Base.time()
     dim = length(ps[1])
     anim = Animation()
     if dim == 2
@@ -345,4 +356,6 @@ function draw(result::OptimizationResult)
         plt = plot(plt1,plt2,pltvnorms, layout=(1,3), size=(900,300) )
         return plt
     end
-end;
+end
+
+end
