@@ -311,7 +311,7 @@ function watch(result::OptimizationResult; totalseconds=5.0)
                         legend=false, color=:black, markersize=4.0,
                             xlims=fullx, ylims=fully, zlims=fullz))
         GLMakie.record(initplt, "watch$startingtime.gif", ps; framerate = Int64(round(framespersecond))) do p
-            node[] = p
+            node[] = GLMakie.Point3f0(p)
         end
         return(initplt)
     end
