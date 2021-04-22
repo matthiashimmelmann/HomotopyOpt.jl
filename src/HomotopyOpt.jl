@@ -29,7 +29,9 @@ struct ConstraintVariety
 
     function ConstraintVariety(eqnz, N::Int, d::Int, numsamples::Int)
         HomotopyContinuation.@var varz[1:N]
+        display(varz)
         algeqnz = [eqn(varz) for eqn in eqnz]
+        display(algeqnz)
         dg = HomotopyContinuation.differentiate(algeqnz, varz)
         randL = HomotopyContinuation.rand_subspace(N; codim=d)
         randResult = HomotopyContinuation.solve(algeqnz; target_subspace = randL, variables=varz)
