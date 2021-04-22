@@ -267,6 +267,7 @@ end
 
 function watch(result::OptimizationResult; totalseconds=5.0)
     ps = result.computedpoints
+    display(ps)
     samples = result.constraintvariety.samples
     mediannorm = Statistics.median([LinearAlgebra.norm(p) for p in samples])
     samples = filter(x -> LinearAlgebra.norm(x) < 2*mediannorm, samples)
@@ -307,6 +308,7 @@ function watch(result::OptimizationResult; totalseconds=5.0)
             initplt = plot_implicit_surface(g1)
         end
         node = GLMakie.Node(GLMakie.Point3f0(ps[1]))
+        display(node)
         GLMakie.@lift(GLMakie.scatter!(initplt, $node;
                         legend=false, color=:black, markersize=4.0,
                             xlims=fullx, ylims=fully, zlims=fullz))
