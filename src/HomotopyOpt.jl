@@ -29,9 +29,7 @@ struct ConstraintVariety
 
     function ConstraintVariety(eqnz, N::Int, d::Int, numsamples::Int)
         HomotopyContinuation.@var varz[1:N]
-        display(varz)
         algeqnz = [eqn(varz) for eqn in eqnz]
-        display(algeqnz)
         dg = HomotopyContinuation.differentiate(algeqnz, varz)
         randL = HomotopyContinuation.rand_subspace(N; codim=d)
         randResult = HomotopyContinuation.solve(algeqnz; target_subspace = randL, variables=varz)
@@ -54,9 +52,7 @@ struct ConstraintVariety
 
     function ConstraintVariety(eqnz,N::Int,d::Int)
         HomotopyContinuation.@var varz[1:N]
-        display(varz)
         algeqnz = [eqn(varz) for eqn in eqnz]
-        display(algeqnz)
         dg = HomotopyContinuation.differentiate(algeqnz, varz)
         new(varz,algeqnz,dg,N,d,[],eqnz)
     end
@@ -314,7 +310,7 @@ function watch(result::OptimizationResult; totalseconds=5.0)
         GLMakie.@lift(GLMakie.scatter!(initplt, $node;
                         legend=false, color=:black, markersize=4.0,
                             xlims=fullx, ylims=fully, zlims=fullz))
-        GLMakie.record(initplt, "watch$startingtime.gif", ps; framerate = framespersecond) do p
+        GLMakie.record(initplt, "watch$startingtime.gif", ps; framerate = Int64(round(framespersecond)) do p
             node[] = p
         end
         return(initplt)
