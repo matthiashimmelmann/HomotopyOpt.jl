@@ -6,7 +6,7 @@ import ImplicitPlots: implicit_plot
 import Plots
 import Statistics
 import Implicit3DPlotting: plot_implicit_surface, plot_implicit_curve
-import Implicit3DPlotting.GLMakie
+import GLMakie
 
 export ConstraintVariety,
        findminima,
