@@ -307,8 +307,8 @@ function watch(result::OptimizationResult; totalseconds=5.0)
             initplt = plot_implicit_surface(g1)
         end
         pointsys=[GLMakie.Point3f0(p) for p in ps]
-        GLMakie.record(initplt, "watch$startingtime.gif", pointsys; framerate = Int64(round(framespersecond))) do p
-            GLMakie.scatter!(initplt, p;
+        GLMakie.record(initplt, "watch$startingtime.gif", 1:length(pointsys); framerate = Int64(round(framespersecond))) do i
+            GLMakie.scatter!(initplt, pointsys[i];
                             legend=false, color=:black, markersize=4.0,
                             xlims=fullx, ylims=fully, zlims=fullz)
         end
