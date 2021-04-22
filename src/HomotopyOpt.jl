@@ -54,7 +54,9 @@ struct ConstraintVariety
 
     function ConstraintVariety(eqnz,N::Int,d::Int)
         HomotopyContinuation.@var varz[1:N]
+        display(varz)
         algeqnz = [eqn(varz) for eqn in eqnz]
+        display(algeqnz)
         dg = HomotopyContinuation.differentiate(algeqnz, varz)
         new(varz,algeqnz,dg,N,d,[],eqnz)
     end
