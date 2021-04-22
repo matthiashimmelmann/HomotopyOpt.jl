@@ -310,7 +310,7 @@ function watch(result::OptimizationResult; totalseconds=5.0)
         GLMakie.@lift(GLMakie.scatter!(initplt, $node;
                         legend=false, color=:black, markersize=4.0,
                             xlims=fullx, ylims=fully, zlims=fullz))
-        GLMakie.record(initplt, "watch$startingtime.gif", ps; framerate = Int64(round(framespersecond)) do p
+        GLMakie.record(initplt, "watch$startingtime.gif", ps; framerate = Int64(round(framespersecond))) do p
             node[] = p
         end
         return(initplt)
