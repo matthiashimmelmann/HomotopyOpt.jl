@@ -309,8 +309,7 @@ function watch(result::OptimizationResult; totalseconds=5.0)
         pointsys=[GLMakie.Point3f0(p) for p in ps]
         GLMakie.record(initplt, "watch$startingtime.gif", 1:length(pointsys); framerate = Int64(round(framespersecond))) do i
             GLMakie.scatter!(initplt, pointsys[i];
-                            legend=false, color=:black, markersize=4.0,
-                            xlims=fullx, ylims=fully, zlims=fullz)
+                            color=:black, markersize=4.0)
         end
         return(initplt)
     end
