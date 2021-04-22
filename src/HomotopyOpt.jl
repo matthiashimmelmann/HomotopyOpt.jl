@@ -25,15 +25,18 @@ struct ConstraintVariety
     ambientdimension
     dimensionofvariety
     samples
+    implicitequations
 
-    function ConstraintVariety(varz, eqnz, N::Int, d::Int, numsamples::Int)
-        dg = HomotopyContinuation.differentiate(eqnz, varz)
+    function ConstraintVariety(eqnz, N::Int, d::Int, numsamples::Int)
+        HomotopyContinuation.@var varz[1:N]
+        algeqnz = [eqn(varz) for eqn in eqnz]
+        dg = HomotopyContinuation.differentiate(algeqnz, varz)
         randL = HomotopyContinuation.rand_subspace(N; codim=d)
-        randResult = HomotopyContinuation.solve(eqnz; target_subspace = randL, variables=varz)
+        randResult = HomotopyContinuation.solve(algeqnz; target_subspace = randL, variables=varz)
         Ωs = []
         for _ in 1:numsamples
             newΩs = HomotopyContinuation.solve(
-                    eqnz,
+                    algeqnz,
                     HomotopyContinuation.solutions(randResult);
                     variables = varz,
                     start_subspace = randL,
@@ -44,12 +47,14 @@ struct ConstraintVariety
             realsols = HomotopyContinuation.real_solutions(newΩs)
             push!(Ωs, realsols...)
         end
-        new(varz,eqnz,dg,N,d,Ωs)
+        new(varz,algeqnz,dg,N,d,Ωs,eqnz)
     end
 
-    function ConstraintVariety(varz,eqnz,N::Int,d::Int)
-        dg = HomotopyContinuation.differentiate(eqnz, varz)
-        new(varz,eqnz,dg,N,d,[])
+    function ConstraintVariety(eqnz,N::Int,d::Int)
+        HomotopyContinuation.@var varz[1:N]
+        algeqnz = [eqn(varz) for eqn in eqnz]
+        dg = HomotopyContinuation.differentiate(algeqnz, varz)
+        new(varz,algeqnz,dg,N,d,[],eqnz)
     end
 end
 
@@ -292,10 +297,10 @@ function watch(result::OptimizationResult; totalseconds=5.0)
         fullx = [minimum([q[1] for q in samples]) - 0.01, maximum([q[1] for q in samples]) + 0.01]
         fully = [minimum([q[2] for q in samples]) - 0.01, maximum([q[2] for q in samples]) + 0.01]
         fullz = [minimum([q[3] for q in samples]) - 0.01, maximum([q[3] for q in samples]) + 0.01]
-        g1 = result.constraintvariety.equations[1]
-        if(length(result.constraintvariety.equations)>1)
+        g1 = result.constraintvariety.implicitequations[1]
+        if(length(result.constraintvariety.implicitequations)>1)
             # should be space curve
-            g2 = result.constraintvariety.equations[2]
+            g2 = result.constraintvariety.implicitequations[2]
             initplt = plot_implicit_curve(g1,g2)
         else
             #should be surface
