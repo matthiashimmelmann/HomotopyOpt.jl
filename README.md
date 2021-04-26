@@ -13,15 +13,12 @@ The end result is that we slow down in the correct places to find critical point
 ```julia
 include("maincode.jl")
 
-xvarz = [Variable(:x,i) for i in 1:2] # using the symbolics from HomotopyContinuation.jl
-
-sexticcurve(x,y) = (x^4 + y^4 - 1) * (x^2 + y^2 - 2) + x^5 * y # sextic curve
-g1 = sexticcurve(xvarz...)
-g = [g1] # list of defining equations for the constraint variety
+sexticcurve(x) = (x[1]^4 + x[2]^4 - 1) * (x[1]^2 + x[2]^2 - 2) + x[1]^5 * x[2] # sextic curve
+g = [sexticcurve] # list of defining equations for the constraint variety
 N,d = 2,1 # ambient dimension, variety dimension
 numsamples = 100 # we want to compute some random starting points for our optimization problem
 
-G = ConstraintVariety(xvarz, g, N, d, numsamples); # if you dont ask for samples, it will not compute them.
+G = ConstraintVariety(g, N, d, numsamples); # if you dont ask for samples, it will not compute them.
 ```
 
 Above we created a `ConstraintVariety`, and now we need to create a function that evaluates the gradient of the objective function.
