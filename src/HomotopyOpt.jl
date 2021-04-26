@@ -3,8 +3,9 @@ module HomotopyOpt
 import HomotopyContinuation
 import LinearAlgebra
 import ImplicitPlots: implicit_plot
-import Plots: scatter!, frame, plot, Animation, gif
+import Plots
 import Statistics
+import Implicit3DPlotting: plot_implicit_surface, plot_implicit_curve, GLMakiePlottingLibrary
 
 export ConstraintVariety,
        findminima,
@@ -23,15 +24,18 @@ struct ConstraintVariety
     ambientdimension
     dimensionofvariety
     samples
+    implicitequations
 
-    function ConstraintVariety(varz, eqnz, N::Int, d::Int, numsamples::Int)
-        dg = HomotopyContinuation.differentiate(eqnz, varz)
+    function ConstraintVariety(eqnz, N::Int, d::Int, numsamples::Int)
+        HomotopyContinuation.@var varz[1:N]
+        algeqnz = [eqn(varz) for eqn in eqnz]
+        dg = HomotopyContinuation.differentiate(algeqnz, varz)
         randL = HomotopyContinuation.rand_subspace(N; codim=d)
-        randResult = HomotopyContinuation.solve(eqnz; target_subspace = randL, variables=varz)
+        randResult = HomotopyContinuation.solve(algeqnz; target_subspace = randL, variables=varz)
         Ωs = []
         for _ in 1:numsamples
             newΩs = HomotopyContinuation.solve(
-                    eqnz,
+                    algeqnz,
                     HomotopyContinuation.solutions(randResult);
                     variables = varz,
                     start_subspace = randL,
@@ -42,19 +46,21 @@ struct ConstraintVariety
             realsols = HomotopyContinuation.real_solutions(newΩs)
             push!(Ωs, realsols...)
         end
-        new(varz,eqnz,dg,N,d,Ωs)
+        new(varz,algeqnz,dg,N,d,Ωs,eqnz)
     end
 
-    function ConstraintVariety(varz,eqnz,N::Int,d::Int)
-        dg = HomotopyContinuation.differentiate(eqnz, varz)
-        new(varz,eqnz,dg,N,d,[])
+    function ConstraintVariety(eqnz,N::Int,d::Int)
+        HomotopyContinuation.@var varz[1:N]
+        algeqnz = [eqn(varz) for eqn in eqnz]
+        dg = HomotopyContinuation.differentiate(algeqnz, varz)
+        new(varz,algeqnz,dg,N,d,[],eqnz)
     end
 end
 
 function computesystem(p, G::ConstraintVariety,
                 evaluateobjectivefunctiongradient::Function)
 
-    dgp = HomotopyContinuation.evaluate(G.jacobian, G.variables => p)
+    dgp = HomotopyContinuation.ModelKit.evaluate(G.jacobian, G.variables => p)
     Up,_ = LinearAlgebra.qr( LinearAlgebra.transpose(dgp) )
     Np = Up[:, 1:(G.ambientdimension - G.dimensionofvariety)] # gives ONB for N_p(G) normal space
 
@@ -111,7 +117,7 @@ end
 function getNandTandv(q, G::ConstraintVariety,
                     evaluateobjectivefunctiongradient::Function)
 
-    dgq = evaluate(G.jacobian, G.variables => q)
+    dgq = HomotopyContinuation.ModelKit.evaluate(G.jacobian, G.variables => q)
     Qq,_ = LinearAlgebra.qr(transpose(dgq))
     Nq = Qq[:, 1:(G.ambientdimension - G.dimensionofvariety)] # O.N.B. for the normal space at q
     Tq = Qq[:, (G.ambientdimension - G.dimensionofvariety + 1):end] # O.N.B. for tangent space at q
@@ -263,7 +269,7 @@ function watch(result::OptimizationResult; totalseconds=5.0)
     samples = result.constraintvariety.samples
     mediannorm = Statistics.median([LinearAlgebra.norm(p) for p in samples])
     samples = filter(x -> LinearAlgebra.norm(x) < 2*mediannorm, samples)
-    initplt = plot() # initialize
+    initplt = Plots.plot() # initialize
     M = length(ps)
     framespersecond = M / totalseconds
     if framespersecond > 45
@@ -271,7 +277,7 @@ function watch(result::OptimizationResult; totalseconds=5.0)
     end
     startingtime = Base.time()
     dim = length(ps[1])
-    anim = Animation()
+    anim = Plots.Animation()
     if dim == 2
         fullx = [minimum([q[1] for q in samples]) - 0.01, maximum([q[1] for q in samples]) + 0.01]
         fully = [minimum([q[2] for q in samples]) - 0.01, maximum([q[2] for q in samples]) + 0.01]
@@ -282,28 +288,30 @@ function watch(result::OptimizationResult; totalseconds=5.0)
             # BELOW: only plot next point, delete older points during animation
             # plt = scatter!(initplt, [p[1]], [p[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
             # BELOW: keep old points during animation.
-            initplt = scatter!(initplt, [p[1]], [p[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
-            frame(anim)
+            initplt = Plots.scatter!(initplt, [p[1]], [p[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
+            Plots.frame(anim)
         end
+        return Plots.gif(anim, "watch$startingtime.gif", fps=framespersecond)
     elseif dim == 3
         fullx = [minimum([q[1] for q in samples]) - 0.01, maximum([q[1] for q in samples]) + 0.01]
         fully = [minimum([q[2] for q in samples]) - 0.01, maximum([q[2] for q in samples]) + 0.01]
         fullz = [minimum([q[3] for q in samples]) - 0.01, maximum([q[3] for q in samples]) + 0.01]
-        initplt = plot() # initialize
-        for q in samples
-            initplt = scatter!(initplt, [q[1]], [q[2]], [q[3]],
-                                    legend=false, color=:orange, markersize=3.0,
-                                    xlims=fullx, ylims=fully, zlims=fullz)
+        g1 = result.constraintvariety.implicitequations[1]
+        if(length(result.constraintvariety.implicitequations)>1)
+            # should be space curve
+            g2 = result.constraintvariety.implicitequations[2]
+            initplt = plot_implicit_curve(g1,g2)
+        else
+            #should be surface
+            initplt = plot_implicit_surface(g1)
         end
-        frame(anim)
-        for p in ps
-            initplt = scatter!(initplt, [p[1]], [p[2]], [p[3]],
-                                    legend=false, color=:black, markersize=5.0,
-                                    xlims=fullx, ylims=fully, zlims=fullz)
-            frame(anim)
+        pointsys=[GLMakiePlottingLibrary.Point3f0(p) for p in ps]
+        GLMakiePlottingLibrary.record(initplt, "watch$startingtime.gif", 1:length(pointsys); framerate = Int64(round(framespersecond))) do i
+            GLMakiePlottingLibrary.scatter!(initplt, pointsys[i];
+                            color=:black, markersize=20.0)
         end
+        return(initplt)
     end
-    return gif(anim, "watch$startingtime.gif", fps=framespersecond)
 end
 
 function draw(result::OptimizationResult)
@@ -320,20 +328,20 @@ function draw(result::OptimizationResult)
         zoomx = [minimum([q[1] for q in localqs]) - 0.01, maximum([q[1] for q in localqs]) + 0.01]
         zoomy = [minimum([q[2] for q in localqs]) - 0.01, maximum([q[2] for q in localqs]) + 0.01]
         for q in globalqs
-            plt1 = scatter!(plt1, [q[1]], [q[2]], legend=false, color=:black, xlims=[-2,2], ylims=[-2,2])
+            plt1 = Plots.scatter!(plt1, [q[1]], [q[2]], legend=false, color=:black, xlims=[-2,2], ylims=[-2,2])
         end
         for q in localqs
-            plt2 = scatter!(plt2, [q[1]], [q[2]], legend=false, color=:blue, xlims=zoomx, ylims=zoomy)
+            plt2 = Plots.scatter!(plt2, [q[1]], [q[2]], legend=false, color=:blue, xlims=zoomx, ylims=zoomy)
         end
         vnorms = result.lastlocalstepsresult.allcomputedprojectedgradientvectornorms
-        pltvnorms = scatter(vnorms, legend=false, title="norm(v) for last local steps")
-        plt = plot(plt1,plt2,pltvnorms, layout=(1,3), size=(900,300) )
+        pltvnorms = Plots.scatter(vnorms, legend=false, title="norm(v) for last local steps")
+        plt = Plots.plot(plt1,plt2,pltvnorms, layout=(1,3), size=(900,300) )
         return plt
     elseif dim == 3
         pointz = result.constraintvariety.samples
         mediannorm = Statistics.median([LinearAlgebra.norm(pt) for pt in pointz])
         pointz = filter(x -> LinearAlgebra.norm(x) < 2*mediannorm, pointz)
-        plt1,plt2 = plot(), plot() # initialize
+        plt1,plt2 = Plots.plot(), Plots.plot() # initialize
         fullx = [minimum([q[1] for q in pointz]) - 0.01, maximum([q[1] for q in pointz]) + 0.01]
         fully = [minimum([q[2] for q in pointz]) - 0.01, maximum([q[2] for q in pointz]) + 0.01]
         fullz = [minimum([q[3] for q in pointz]) - 0.01, maximum([q[3] for q in pointz]) + 0.01]
@@ -342,18 +350,18 @@ function draw(result::OptimizationResult)
         zoomy = [minimum([q[2] for q in globalqs]) - 0.01, maximum([q[2] for q in globalqs]) + 0.01]
         zoomz = [minimum([q[3] for q in globalqs]) - 0.01, maximum([q[3] for q in globalqs]) + 0.01]
         for p in pointz
-            plt1 = scatter!(plt1, [p[1]], [p[2]], [p[3]],
+            plt1 = Plots.scatter!(plt1, [p[1]], [p[2]], [p[3]],
                 legend=false, color=:orange, xlims=fullx, ylims=fully, zlims=fullz, markersize=2)
         end
         for q in globalqs
-            plt1 = scatter!(plt1, [q[1]], [q[2]], [q[3]],
+            plt1 = Plots.scatter!(plt1, [q[1]], [q[2]], [q[3]],
                 legend=false, color=:black, xlims=fullx, ylims=fully, zlims=fullz, markersize=4)
-            plt2 = scatter!(plt2, [q[1]], [q[2]], [q[3]],
+            plt2 = Plots.scatter!(plt2, [q[1]], [q[2]], [q[3]],
                 legend=false, color=:black, xlims=zoomx, ylims=zoomy, zlims=zoomz)
         end
         vnorms = result.lastlocalstepsresult.allcomputedprojectedgradientvectornorms
-        pltvnorms = scatter(vnorms, legend=false, title="norm(v) for last local steps")
-        plt = plot(plt1,plt2,pltvnorms, layout=(1,3), size=(900,300) )
+        pltvnorms = Plots.scatter(vnorms, legend=false, title="norm(v) for last local steps")
+        plt = Plots.plot(plt1,plt2,pltvnorms, layout=(1,3), size=(900,300) )
         return plt
     end
 end
