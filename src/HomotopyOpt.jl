@@ -5,8 +5,7 @@ import LinearAlgebra
 import ImplicitPlots: implicit_plot
 import Plots
 import Statistics
-import Implicit3DPlotting: plot_implicit_surface, plot_implicit_curve
-import GLMakie
+import Implicit3DPlotting: plot_implicit_surface, plot_implicit_curve, GLMakiePlottingLibrary
 
 export ConstraintVariety,
        findminima,
@@ -306,9 +305,9 @@ function watch(result::OptimizationResult; totalseconds=5.0)
             #should be surface
             initplt = plot_implicit_surface(g1)
         end
-        pointsys=[GLMakie.Point3f0(p) for p in ps]
-        GLMakie.record(initplt, "watch$startingtime.gif", 1:length(pointsys); framerate = Int64(round(framespersecond))) do i
-            GLMakie.scatter!(initplt, pointsys[i];
+        pointsys=[GLMakiePlottingLibrary.Point3f0(p) for p in ps]
+        GLMakiePlottingLibrary.record(initplt, "watch$startingtime.gif", 1:length(pointsys); framerate = Int64(round(framespersecond))) do i
+            GLMakiePlottingLibrary.scatter!(initplt, pointsys[i];
                             color=:black, markersize=20.0)
         end
         return(initplt)
