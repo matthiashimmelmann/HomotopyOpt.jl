@@ -283,7 +283,7 @@ function watch(result::OptimizationResult; totalseconds=5.0)
         fully = [minimum([q[2] for q in samples]) - 0.01, maximum([q[2] for q in samples]) + 0.01]
         g1 = result.constraintvariety.equations[1] # should only be a curve in ambient R^2
         initplt = implicit_plot(g1, xlims=fullx, ylims=fully, legend=false)
-        display("string")
+        display(initplt)
         Plots.frame(anim)
         for p in ps
             # BELOW: only plot next point, delete older points during animation
