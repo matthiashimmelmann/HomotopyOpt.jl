@@ -4,6 +4,7 @@ import HomotopyContinuation
 import LinearAlgebra
 import ImplicitPlots: implicit_plot
 import Plots
+import Plots: frame
 import Statistics
 import Implicit3DPlotting: plot_implicit_surface, plot_implicit_curve, GLMakiePlottingLibrary
 
@@ -284,13 +285,13 @@ function watch(result::OptimizationResult; totalseconds=5.0)
         g1 = result.constraintvariety.equations[1] # should only be a curve in ambient R^2
         initplt = implicit_plot(g1, xlims=fullx, ylims=fully, legend=false)
         display(initplt)
-        Plots.frame(anim)
+        #Plots.frame(anim)
         for p in ps
             # BELOW: only plot next point, delete older points during animation
             # plt = scatter!(initplt, [p[1]], [p[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
             # BELOW: keep old points during animation.
             initplt = Plots.scatter!(initplt, [p[1]], [p[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
-            Plots.frame(anim)
+            #Plots.frame(anim)
         end
         return Plots.gif(anim, "watch$startingtime.gif", fps=framespersecond)
     elseif dim == 3
