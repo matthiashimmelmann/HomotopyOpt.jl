@@ -5,7 +5,9 @@ import LinearAlgebra
 import ImplicitPlots: implicit_plot
 import Plots
 import Statistics
-import Implicit3DPlotting: plot_implicit_surface, plot_implicit_surface!, plot_implicit_curve, plot_implicit_curve!, GLMakiePlottingLibrary
+import Implicit3DPlotting: plot_implicit_surface, plot_implicit_surface!, plot_implicit_curve, plot_implicit_curve!#, GLMakiePlottingLibrary
+import GLMakie as GLMakiePlottingLibrary
+import ForwardDiff
 
 export ConstraintVariety,
        findminima,
@@ -69,7 +71,6 @@ function computesystem(p, G::ConstraintVariety,
 
     w = -∇Qp # direction of decreasing energy function
     v = w - Np * (Np' * w) # projected gradient -∇Q(p) onto the tangent space, subtract the normal components
-
     g = G.equations
 
     if G.dimensionofvariety > 1 # Need more linear equations when tangent space has dim > 1
@@ -89,6 +90,22 @@ function computesystem(p, G::ConstraintVariety,
         return F
     end
 end
+
+function onestep(F, p, stepsize)
+    # we want parameter homotopy from 0.0 to stepsize, so we take two steps
+    # first from 0.0 to a complex number parameter, then from that parameter to stepsize.
+    solveresult = HomotopyContinuation.solve(F, [p]; start_parameters=[0.0], target_parameters=[stepsize])
+    sol = HomotopyContinuation.real_solutions(solveresult)
+    success = false
+    if length(sol) > 0
+        q = sol[1] # only tracked one solution path, thus there should only be one solution
+        success = true
+    else
+        q = p
+    end
+    return q, success
+end
+
 
 function twostep(F, p, stepsize)
     # we want parameter homotopy from 0.0 to stepsize, so we take two steps
@@ -112,6 +129,24 @@ function twostep(F, p, stepsize)
         q = p
     end
     return q, success
+end
+
+function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, v::Vector, p0::Vector, stepsize::Float64; τ=0.6, r=1e-3, twostepcheck)
+    # TODO Implement strong Wolfe conditions in favour of Armijo Goldstein
+    α=Base.copy(stepsize)
+    p=Base.copy(p0)
+    keepgoing = true
+    while(keepgoing)
+        q, success = twostepcheck ? twostep(F, p0, α) : onestep(F, p0, α)
+        success ? p=q : nothing
+        # Proceed until the Armijo-Goldstein condition is satisfied or the stepsize becomes too small.
+        if (Q(p0)-Q(p) >= r*α*LinearAlgebra.norm(v)^2 && success  || α < 1e-6)
+            keepgoing = false
+        else
+            α=τ*α
+        end
+    end
+    return(p, α/stepsize)
 end
 
 function getNandTandv(q, G::ConstraintVariety,
@@ -158,60 +193,57 @@ struct LocalStepsResult
 end
 
 function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
+                objectiveFunction::Function,
                 evaluateobjectivefunctiongradient::Function;
-                decreasefactor=5.0, increasefactor=1.1, maxsteps=50)
+                maxsteps, decreasefactor=2, initialtime, maxseconds, twostepcheck=true)
 
     keepgoing, converged, j, timesturned, valleysfound, count = true, false, 1, 0, 0, 0
     Np, Tp, vp = getNandTandv(p, G, evaluateobjectivefunctiongradient)
     Ns, Ts = [Np], [Tp] # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
     qs, vs, ns = [p], [vp], [LinearAlgebra.norm(vp)] # qs=new points on G, vs=projected gradients, ns=norms of projected gradients
-    F = computesystem(p, G, evaluateobjectivefunctiongradient) # sets up the system of equations, one parameter ε
+    stepsize = ε0
     while keepgoing
         count += 1
-        if count > maxsteps
+        println("Prä stepsize: ",stepsize, ", norm of projected gradient: ", ns[end], ", projected gradient: ", vs[end])
+        if count >= maxsteps || Base.time() - initialtime > maxseconds
             keepgoing = false
         end
-        j = j + 1 # increase count for j ∈ 2,3,4,5,...  start j=2 since qs[1] = p.
-        # For j ∈ 2,3,4,... we will call `twostep(F, p, j*ε0)`
-        stepsize = (j-1) * ε0 # because p = qs[1] we are off by one here.
-        q, success = twostep(F, p, stepsize)
-        if success
-            push!(qs, q)
-            # now compute normal space, tangent spaces, projected gradient at the point q
-            Nq, Tq, vq = getNandTandv(q, G, evaluateobjectivefunctiongradient)
-            push!(Ns, Nq)
-            push!(Ts, Tq)
-            push!(vs, vq)
-            push!(ns, LinearAlgebra.norm(vq))
-            if LinearAlgebra.norm(vq) < tolerance
-                keepgoing = false
-                converged = true
-                newp = q
-                newε0 = ε0
-                return LocalStepsResult(p,ε0,qs,vs,ns,newp,newε0,converged,timesturned,valleysfound)
-            elseif ((ns[j] - ns[j-1]) > 0.0)
-                if j > 2 && ((ns[j-1] - ns[j-2]) < 0.0)
-                    # projected norms were decreasing, but started increasing!
-                    # check parallel transport dot product to see if we should slow down
-                    valleysfound += 1
-                    ϕvj = paralleltransport(vs[j], Ts[j], Ts[j-2])
-                    if ((vs[j-2]' * ϕvj) < 0.0)
-                        # we think there is a critical point we skipped past! slow down!
-                        timesturned += 1
-                        newp = qs[j-2]
-                        newε0 = ε0 / decreasefactor
-                        return LocalStepsResult(p,ε0,qs,vs,ns,newp,newε0,converged,timesturned,valleysfound)
-                    end
+        F = computesystem(qs[end], G, evaluateobjectivefunctiongradient)
+        q, factor = backtracking_linesearch(objectiveFunction, F, vs[end], qs[end], stepsize; twostepcheck, r = twostepcheck ? 1e-3 : 1e-4)
+        push!(qs, q)
+        Nq, Tq, vq = getNandTandv(q, G, evaluateobjectivefunctiongradient)
+        push!(Ns, Nq)
+        push!(Ts, Tq)
+        push!(vs, vq)
+        push!(ns, LinearAlgebra.norm(vq))
+        if ns[end] < tolerance
+            keepgoing = false
+            converged = true
+            newp = q
+            return LocalStepsResult(p,ε0,qs,vs,ns,newp,stepsize,converged,timesturned,valleysfound)
+        elseif ((ns[end] - ns[end-1]) > 0.0)
+            if length(ns) > 2 && ((ns[end-1] - ns[end-2]) < 0.0)
+                # projected norms were decreasing, but started increasing!
+                # check parallel transport dot product to see if we should slow down
+                valleysfound += 1
+                ϕvj = paralleltransport(vs[end], Ts[end], Ts[end-2])
+                if ((vs[end-2]' * ϕvj) < 0.0)
+                    # we think there is a critical point we skipped past! slow down!
+                    timesturned += 1
+                    newp = qs[end-2]
+                    newε0 = stepsize / decreasefactor
+                    return LocalStepsResult(p,ε0,qs,vs,ns,newp,newε0,converged,timesturned,valleysfound)
                 end
             end
-        else
-            # our twostep homotopy failed, maybe we left the real-valued variety!
-            keepgoing = false
         end
+        # The next (initial) stepsize is determined by the previous step and how much the energy function changed - in accordance with RieOpt.
+        # A factor dependent on how how small the stepsize backtracking linesearch produces is compared to its input. The question here is: Does backtracking slow down significantly? If the quotient is close to 1 => inrease stepsize
+        # TODO : Understand logic behind this.
+        # TODO Close to the favorable point (where the projected gradient is small) the stepsize should also be small. Conversely, far away from the optimum, larger stepsizes may be admissible.
+        stepsize = length(qs)>2 ? 2^factor*Base.maximum([2*LinearAlgebra.norm(objectiveFunction(qs[end-1])-objectiveFunction(qs[end]))/ns[end]^2, 2*LinearAlgebra.norm(objectiveFunction(qs[end-2])-objectiveFunction(qs[end]))/ns[end]^2, 0.02]) : 2^factor*Base.maximum([2*LinearAlgebra.norm(objectiveFunction(qs[end-1])-objectiveFunction(qs[end]))/ns[end]^2, 0.02])
     end
     newp = qs[end] # is this the best choice?
-    newε0 = ε0 * increasefactor
-    return LocalStepsResult(p,ε0,qs,vs,ns,newp,newε0,converged,timesturned,valleysfound)
+    return LocalStepsResult(p,ε0,qs,vs,ns,newp,stepsize,converged,timesturned,valleysfound)
 end
 
 struct OptimizationResult
@@ -229,24 +261,26 @@ struct OptimizationResult
     end
 end
 
-function findminima(p0,initialstepsize,tolerance,
+function findminima(p0, tolerance,
                 G::ConstraintVariety,
-                evaluateobjectivefunctiongradient::Function;
-                maxseconds=100, maxlocalsteps=50)
+                objectiveFunction::Function;
+                maxseconds=100, maxlocalsteps=30, initialstepsize=1.0, twostepcheck=true)
     initialtime = Base.time()
     keepgoing, converged = true, false
     p = copy(p0) # initialize before updating `p` below
-    ε0 = initialstepsize # initialize before updating `ε0` below
     ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
+    evaluateobjectivefunctiongradient = x -> ForwardDiff.gradient(objectiveFunction, x)
+    _, _, v = getNandTandv(p0, G, evaluateobjectivefunctiongradient) # Get the projected gradient at the first point
+     # initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
+    ε0 = 2*initialstepsize/LinearAlgebra.norm(v)
     lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,converged,0,0)
-
     while keepgoing
         if (Base.time() - initialtime) > maxseconds
             keepgoing = false
             println("We ran out of time... Try setting `maxseconds` to a larger value than $maxseconds")
         end
         # update LSR, only store the *last local run*
-        lastLSR = takelocalsteps(p, ε0, tolerance, G, evaluateobjectivefunctiongradient, maxsteps=maxlocalsteps)
+        lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, initialtime, maxseconds, twostepcheck)
         if lastLSR.converged
             keepgoing = false
             converged = true
@@ -258,7 +292,7 @@ function findminima(p0,initialstepsize,tolerance,
             push!(ps, p) # record this *main step*
         end
     end
-    return OptimizationResult(ps,p0,initialstepsize,tolerance,converged,lastLSR,G,evaluateobjectivefunctiongradient)
+    return OptimizationResult(ps,p0,ε0,tolerance,converged,lastLSR,G,evaluateobjectivefunctiongradient)
 end
 
 # Below are functions `watch` and `draw`
@@ -334,7 +368,7 @@ function draw(result::OptimizationResult)
             plt2 = Plots.scatter!(plt2, [q[1]], [q[2]], legend=false, color=:blue, xlims=zoomx, ylims=zoomy)
         end
         vnorms = result.lastlocalstepsresult.allcomputedprojectedgradientvectornorms
-        pltvnorms = Plots.scatter(vnorms, legend=false, title="norm(v) for last local steps")
+        pltvnorms = Plots.plot(vnorms, legend=false, title="norm(v) for last local steps")
         plt = Plots.plot(plt1,plt2,pltvnorms, layout=(1,3), size=(900,300) )
         return plt
     elseif dim == 3
@@ -372,7 +406,7 @@ function draw(result::OptimizationResult)
         end
 
         vnorms = result.lastlocalstepsresult.allcomputedprojectedgradientvectornorms
-        GLMakiePlottingLibrary.scatter!(ax3,vnorms; legend=false)
+        GLMakiePlottingLibrary.plot!(ax3,vnorms; legend=false)
 
         return fig
     end
