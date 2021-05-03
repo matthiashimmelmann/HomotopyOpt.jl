@@ -131,8 +131,7 @@ function twostep(F, p, stepsize)
     return q, success
 end
 
-function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; τ=0.6, r=1e-4, twostepcheck)
-    # TODO Implement strong Wolfe conditions in favour of Armijo Goldstein
+function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; τ=0.5, r=1e-4, s=0.9, twostepcheck)
     α=Base.copy(stepsize)
     p=Base.copy(p0)
     _,_,basegradient = getNandTandv(p0, G, evaluateobjectivefunctiongradient)
@@ -140,9 +139,23 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
         q, success = twostepcheck ? twostep(F, p0, α) : onestep(F, p0, α)
         success ? p=q : nothing
         Nq, Tq, vq = getNandTandv(p, G, evaluateobjectivefunctiongradient)
-        # Proceed until the Armijo-Goldstein condition is satisfied or the stepsize becomes too small.
-        if (Q(p0)-Q(p) >= r*α*LinearAlgebra.norm(basegradient)^2 && vq'*basegradient >= 0 && success  || α < 1e-6)
-            return(p, Nq, Tq, vq, α/stepsize)
+        # Proceed until the Wolfe condition is satisfied or the stepsize becomes too small. First we quickly find a lower bound, then we gradually increase this lower-bound
+        if (Q(p0)-Q(p) >= r*α*basegradient'*evaluateobjectivefunctiongradient(p0) && vq'*basegradient >= 0 && success  || α < 1e-6)
+            while(true)
+                αsub = α*1.1
+                q, success = twostepcheck ? twostep(F, p0, α) : onestep(F, p0, α)
+                if(!success)
+                    return(p, Nq, Tq, vq, α/stepsize)
+                end
+                Nqsub, Tqsub, vqsub = getNandTandv(q, G, evaluateobjectivefunctiongradient)
+                if( !(Q(p0)-Q(q) >= r*αsub*basegradient'*evaluateobjectivefunctiongradient(p0)) || !(vqsub'*basegradient >= 0))
+                    return(p, Nq, Tq, vq, α/stepsize)
+                elseif( Base.abs(basegradient'*evaluateobjectivefunctiongradient(q)) <= Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0))*s )
+                    return(q, Nqsub, Tqsub, vqsub, αsub/stepsize)
+                else
+                    p=q; α=αsub; vq=vqsub; Tq=Tqsub; Nq=Nqsub;
+                end
+            end
         else
             α=τ*α
         end
