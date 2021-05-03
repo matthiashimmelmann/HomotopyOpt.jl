@@ -131,22 +131,22 @@ function twostep(F, p, stepsize)
     return q, success
 end
 
-function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, v::Vector, p0::Vector, stepsize::Float64; τ=0.6, r=1e-3, twostepcheck)
+function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; τ=0.6, r=1e-4, twostepcheck)
     # TODO Implement strong Wolfe conditions in favour of Armijo Goldstein
     α=Base.copy(stepsize)
     p=Base.copy(p0)
-    keepgoing = true
-    while(keepgoing)
+    _,_,basegradient = getNandTandv(p0, G, evaluateobjectivefunctiongradient)
+    while(true)
         q, success = twostepcheck ? twostep(F, p0, α) : onestep(F, p0, α)
         success ? p=q : nothing
+        Nq, Tq, vq = getNandTandv(p, G, evaluateobjectivefunctiongradient)
         # Proceed until the Armijo-Goldstein condition is satisfied or the stepsize becomes too small.
-        if (Q(p0)-Q(p) >= r*α*LinearAlgebra.norm(v)^2 && success  || α < 1e-6)
-            keepgoing = false
+        if (Q(p0)-Q(p) >= r*α*LinearAlgebra.norm(basegradient)^2 && vq'*basegradient >= 0 && success  || α < 1e-6)
+            return(p, Nq, Tq, vq, α/stepsize)
         else
             α=τ*α
         end
     end
-    return(p, α/stepsize)
 end
 
 function getNandTandv(q, G::ConstraintVariety,
@@ -204,18 +204,17 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
     stepsize = ε0
     while keepgoing
         count += 1
-        println("Prä stepsize: ",stepsize, ", norm of projected gradient: ", ns[end], ", projected gradient: ", vs[end])
         if count >= maxsteps || Base.time() - initialtime > maxseconds
             keepgoing = false
         end
         F = computesystem(qs[end], G, evaluateobjectivefunctiongradient)
-        q, factor = backtracking_linesearch(objectiveFunction, F, vs[end], qs[end], stepsize; twostepcheck, r = twostepcheck ? 1e-3 : 1e-4)
+        q, Nq, Tq, vq, factor = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], stepsize; twostepcheck, r = twostepcheck ? 1e-3 : 1e-4)
         push!(qs, q)
-        Nq, Tq, vq = getNandTandv(q, G, evaluateobjectivefunctiongradient)
         push!(Ns, Nq)
         push!(Ts, Tq)
         push!(vs, vq)
         push!(ns, LinearAlgebra.norm(vq))
+        println("Prä stepsize: ",Base.rpad(Base.round(stepsize,digits=3),5,"0"), ", norm of projected gradient: ", Base.rpad(Base.round(ns[end],digits=4),6,"0"), ", dot product of two latest projected gradients: ", round(vs[end-1]'*vs[end],digits=2))
         if ns[end] < tolerance
             keepgoing = false
             converged = true
@@ -240,7 +239,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
         # A factor dependent on how how small the stepsize backtracking linesearch produces is compared to its input. The question here is: Does backtracking slow down significantly? If the quotient is close to 1 => inrease stepsize
         # TODO : Understand logic behind this.
         # TODO Close to the favorable point (where the projected gradient is small) the stepsize should also be small. Conversely, far away from the optimum, larger stepsizes may be admissible.
-        stepsize = length(qs)>2 ? 2^factor*Base.maximum([2*LinearAlgebra.norm(objectiveFunction(qs[end-1])-objectiveFunction(qs[end]))/ns[end]^2, 2*LinearAlgebra.norm(objectiveFunction(qs[end-2])-objectiveFunction(qs[end]))/ns[end]^2, 0.02]) : 2^factor*Base.maximum([2*LinearAlgebra.norm(objectiveFunction(qs[end-1])-objectiveFunction(qs[end]))/ns[end]^2, 0.02])
+        stepsize = length(qs)>2 ? 2*2^factor*Base.maximum([LinearAlgebra.norm(objectiveFunction(qs[end-1])-objectiveFunction(qs[end]))/ns[end]^2, LinearAlgebra.norm(objectiveFunction(qs[end-2])-objectiveFunction(qs[end]))/ns[end]^2, 0.01]) : 2*2^factor*Base.maximum([LinearAlgebra.norm(objectiveFunction(qs[end-1])-objectiveFunction(qs[end]))/ns[end]^2, 0.01])
     end
     newp = qs[end] # is this the best choice?
     return LocalStepsResult(p,ε0,qs,vs,ns,newp,stepsize,converged,timesturned,valleysfound)
