@@ -51,11 +51,18 @@ struct ConstraintVariety
         new(varz,algeqnz,dg,N,d,Ωs,eqnz)
     end
 
+    # If the equations are provided in an implicit ::Function format.
     function ConstraintVariety(eqnz,N::Int,d::Int)
         HomotopyContinuation.@var varz[1:N]
         algeqnz = [eqn(varz) for eqn in eqnz]
         dg = HomotopyContinuation.differentiate(algeqnz, varz)
         new(varz,algeqnz,dg,N,d,[],eqnz)
+    end
+
+    # If the equations are already provided in the HomotopyContinuation format
+    function ConstraintVariety(varz,eqnz,N::Int,d::Int)
+        dg = HomotopyContinuation.differentiate(eqnz, varz)
+        new(varz,eqnz,dg,N,d,[],eqnz)
     end
 end
 
@@ -140,22 +147,24 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
         success ? p=q : nothing
         Nq, Tq, vq = getNandTandv(p, G, evaluateobjectivefunctiongradient)
         # Proceed until the Wolfe condition is satisfied or the stepsize becomes too small. First we quickly find a lower bound, then we gradually increase this lower-bound
-        if (Q(p0)-Q(p) >= r*α*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)) && vq'*basegradient >= 0 && success  || α < 1e-6)
+        if (Q(p0)-Q(p) >= r*α*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)) && basegradient'*vq >= 0 && success)
             while(true)
                 αsub = α*1.1
-                q, success = twostepcheck ? twostep(F, p0, α) : onestep(F, p0, α)
+                q, success = twostepcheck ? twostep(F, p0, αsub) : onestep(F, p0, αsub)
                 if(!success)
-                    return(p, Nq, Tq, vq, α/stepsize)
+                    return(p, Nq, Tq, vq, α/stepsize, true, α)
                 end
                 Nqsub, Tqsub, vqsub = getNandTandv(q, G, evaluateobjectivefunctiongradient)
-                if( Q(p0)-Q(q) < r*αsub*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)) || vqsub'*basegradient < 0 )
-                    return(p, Nq, Tq, vq, α/stepsize)
+                if( Q(p0)-Q(q) < r*αsub*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)) || basegradient'*vq < 0 || αsub > stepsize)
+                    return(p, Nq, Tq, vq, α/stepsize, true, α)
                 elseif( Base.abs(basegradient'*evaluateobjectivefunctiongradient(q)) <= s * Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)) )
-                    return(q, Nqsub, Tqsub, vqsub, αsub/stepsize)
+                    return(q, Nqsub, Tqsub, vqsub, αsub/stepsize, true, αsub)
                 else
                     p=q; α=αsub; vq=vqsub; Tq=Tqsub; Nq=Nqsub;
                 end
             end
+        elseif( α < 1e-9 )
+            return(p, Nq, Tq, vq, α/stepsize, false, stepsize)
         else
             α=τ*α
         end
@@ -221,13 +230,13 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
             keepgoing = false
         end
         F = computesystem(qs[end], G, evaluateobjectivefunctiongradient)
-        q, Nq, Tq, vq, factor = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], stepsize; twostepcheck, r = twostepcheck ? 1e-3 : 1e-4)
+        println("Stepsize: ", Base.rpad(Base.round(stepsize,digits=3),5,"0"), ", norm of projected gradient: ", Base.rpad(Base.round(ns[end],digits=5),7,"0"))
+        q, Nq, Tq, vq, factor, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], stepsize; twostepcheck, r = twostepcheck ? 1e-3 : 1e-4)
         push!(qs, q)
         push!(Ns, Nq)
         push!(Ts, Tq)
         push!(vs, vq)
         push!(ns, LinearAlgebra.norm(vq))
-        println("Prä stepsize: ",Base.rpad(Base.round(stepsize,digits=3),5,"0"), ", norm of projected gradient: ", Base.rpad(Base.round(ns[end],digits=4),6,"0"), ", dot product of two latest projected gradients: ", round(vs[end-1]'*vs[end],digits=2))
         if ns[end] < tolerance
             keepgoing = false
             converged = true
@@ -252,7 +261,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
         # A factor dependent on how how small the stepsize backtracking linesearch produces is compared to its input. The question here is: Does backtracking slow down significantly? If the quotient is close to 1 => inrease stepsize
         # TODO Understand logic behind this.
         # TODO Close to the favorable point (where the projected gradient is small) the stepsize should also be small. Conversely, far away from the optimum, larger stepsizes may be admissible.
-        stepsize = length(qs)>2 ? 2*2^factor*Base.maximum([LinearAlgebra.norm(objectiveFunction(qs[end-1])-objectiveFunction(qs[end]))/ns[end]^2, LinearAlgebra.norm(objectiveFunction(qs[end-2])-objectiveFunction(qs[end]))/ns[end]^2, 0.01]) : 2*2^factor*Base.maximum([LinearAlgebra.norm(objectiveFunction(qs[end-1])-objectiveFunction(qs[end]))/ns[end]^2, 0.01])
+        stepsize = Base.minimum([success ? 2*Base.maximum([stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])) , 3^factor*0.0001]) : 3*stepsize, 2])
     end
     newp = qs[end] # is this the best choice?
     return LocalStepsResult(p,ε0,qs,vs,ns,newp,stepsize,converged,timesturned,valleysfound)
@@ -284,7 +293,7 @@ function findminima(p0, tolerance,
     evaluateobjectivefunctiongradient = x -> ForwardDiff.gradient(objectiveFunction, x)
     _, _, v = getNandTandv(p0, G, evaluateobjectivefunctiongradient) # Get the projected gradient at the first point
      # initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
-    ε0 = 2*initialstepsize/LinearAlgebra.norm(v)
+    ε0 = 2*initialstepsize*LinearAlgebra.norm(v)
     lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,converged,0,0)
     while keepgoing
         if (Base.time() - initialtime) > maxseconds
