@@ -12,11 +12,6 @@ export ConstraintVariety,
        watch,
        draw
 
-# this code modifies `ConstrainedOptimizationByParameterHomotopy.jl`
-# so that instead of an ObjectiveFunction, you specify a function called `evaluateobjectivefunctiongradient`
-# this makes more sense. You have to define this function yourself,
-# but now it does not depend on symbolic algebra from HomotopyContinuation.jl
-
 struct ConstraintVariety
     variables
     equations
