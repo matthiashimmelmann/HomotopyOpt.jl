@@ -184,7 +184,6 @@ function getNandTandv(q, G::ConstraintVariety,
 
     w = -∇Qq # direction of decreasing energy function
     vq = w - Nq * (Nq' * w) # projected gradient -∇Q(p) onto the tangent space, subtract the normal components
-
     return Nq, Tq, vq
 end
 
@@ -219,41 +218,36 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
                 evaluateobjectivefunctiongradient::Function;
                 maxsteps, decreasefactor=2, initialtime, maxseconds, twostepcheck=true)
 
-    keepgoing, converged, j, timesturned, valleysfound, count = true, false, 1, 0, 0, 0
+    timesturned, valleysfound = 0, 0
     Np, Tp, vp = getNandTandv(p, G, evaluateobjectivefunctiongradient)
     Ns, Ts = [Np], [Tp] # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
     qs, vs, ns = [p], [vp], [LinearAlgebra.norm(vp)] # qs=new points on G, vs=projected gradients, ns=norms of projected gradients
-    stepsize = ε0
-    while keepgoing
-        count += 1
-        if count >= maxsteps || Base.time() - initialtime > maxseconds
-            keepgoing = false
-        end
+    stepsize = Base.copy(ε0)
+    for _ in 1:maxsteps
         F = computesystem(qs[end], G, evaluateobjectivefunctiongradient)
-        println("Stepsize: ", Base.rpad(Base.round(stepsize,digits=3),5,"0"), ", norm of projected gradient: ", Base.rpad(Base.round(ns[end],digits=5),7,"0"))
-        q, Nq, Tq, vq, factor, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], stepsize; twostepcheck, r = twostepcheck ? 1e-3 : 1e-4)
+        println("Stepsize: ", Base.rpad(Base.round(stepsize,digits=3),5,"0"), ", norm of projected gradient: ", Base.rpad(Base.round(ns[end],digits=5),7,"0"), ", previous norm: ", Base.rpad(Base.round(ns[end],digits=5),7,"0"), ", distance between consecutive points: ", Base.rpad(Base.round(LinearAlgebra.norm(qs[end]-qs[end-1]),digits=4),6,"0"))
+        q, Nq, Tq, vq, factor, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], stepsize; twostepcheck, r=1e-4)
         push!(qs, q)
         push!(Ns, Nq)
         push!(Ts, Tq)
         push!(vs, vq)
         push!(ns, LinearAlgebra.norm(vq))
         if ns[end] < tolerance
-            keepgoing = false
-            converged = true
             newp = q
-            return LocalStepsResult(p,ε0,qs,vs,ns,newp,stepsize,converged,timesturned,valleysfound)
+            return LocalStepsResult(p,ε0,qs,vs,ns,newp,stepsize,true,timesturned,valleysfound)
         elseif ((ns[end] - ns[end-1]) > 0.0)
             if length(ns) > 2 && ((ns[end-1] - ns[end-2]) < 0.0)
                 # projected norms were decreasing, but started increasing!
                 # check parallel transport dot product to see if we should slow down
                 valleysfound += 1
+                # TODO we only need 3 T's and Nq is never used
                 ϕvj = paralleltransport(vs[end], Ts[end], Ts[end-2])
                 if ((vs[end-2]' * ϕvj) < 0.0)
                     # we think there is a critical point we skipped past! slow down!
                     timesturned += 1
                     newp = qs[end-2]
                     newε0 = stepsize / decreasefactor
-                    return LocalStepsResult(p,ε0,qs,vs,ns,newp,newε0,converged,timesturned,valleysfound)
+                    return LocalStepsResult(p,ε0,qs,vs,ns,newp,newε0,false,timesturned,valleysfound)
                 end
             end
         end
@@ -261,10 +255,11 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
         # A factor dependent on how how small the stepsize backtracking linesearch produces is compared to its input. The question here is: Does backtracking slow down significantly? If the quotient is close to 1 => inrease stepsize
         # TODO Understand logic behind this.
         # TODO Close to the favorable point (where the projected gradient is small) the stepsize should also be small. Conversely, far away from the optimum, larger stepsizes may be admissible.
-        stepsize = Base.minimum([success ? 2*Base.maximum([stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])) , 3^factor*0.0001]) : 3*stepsize, 2])
+        stepsize = 3*Base.minimum([success ? Base.maximum([stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])) , 2^factor*0.0001]) : stepsize, 1])
+        Base.time() - initialtime > maxseconds || break
     end
     newp = qs[end] # is this the best choice?
-    return LocalStepsResult(p,ε0,qs,vs,ns,newp,stepsize,converged,timesturned,valleysfound)
+    return LocalStepsResult(p,ε0,qs,vs,ns,newp,stepsize,false,timesturned,valleysfound)
 end
 
 struct OptimizationResult
@@ -295,25 +290,23 @@ function findminima(p0, tolerance,
      # initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
     ε0 = 2*initialstepsize*LinearAlgebra.norm(v)
     lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,converged,0,0)
-    while keepgoing
+    while true
         if (Base.time() - initialtime) > maxseconds
-            keepgoing = false
             println("We ran out of time... Try setting `maxseconds` to a larger value than $maxseconds")
+            break;
         end
         # update LSR, only store the *last local run*
         lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, initialtime, maxseconds, twostepcheck)
         if lastLSR.converged
-            keepgoing = false
-            converged = true
             push!(ps, lastLSR.newsuggestedstartpoint)
-            return OptimizationResult(ps,p0,initialstepsize,tolerance,converged,lastLSR,G,evaluateobjectivefunctiongradient)
+            return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient)
         else
             p = lastLSR.newsuggestedstartpoint
             ε0 = lastLSR.newsuggestedstepsize # update and try again!
             push!(ps, p) # record this *main step*
         end
     end
-    return OptimizationResult(ps,p0,ε0,tolerance,converged,lastLSR,G,evaluateobjectivefunctiongradient)
+    return OptimizationResult(ps,p0,ε0,tolerance,false,lastLSR,G,evaluateobjectivefunctiongradient)
 end
 
 # Below are functions `watch` and `draw`
