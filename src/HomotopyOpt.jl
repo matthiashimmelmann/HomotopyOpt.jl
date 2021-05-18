@@ -255,7 +255,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
         # A factor dependent on how how small the stepsize backtracking linesearch produces is compared to its input. The question here is: Does backtracking slow down significantly? If the quotient is close to 1 => inrease stepsize
         # TODO Understand logic behind this.
         # TODO Close to the favorable point (where the projected gradient is small) the stepsize should also be small. Conversely, far away from the optimum, larger stepsizes may be admissible.
-        stepsize = 3*Base.minimum([success ? Base.maximum([stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])) , 2^factor*0.0001]) : stepsize, 1])
+        stepsize = Base.minimum([success ? Base.maximum([stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])) , 3^factor*0.001]) : 3*stepsize, 3])
         Base.time() - initialtime > maxseconds || break
     end
     newp = qs[end] # is this the best choice?
