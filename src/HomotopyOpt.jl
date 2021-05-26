@@ -20,8 +20,22 @@ export ConstraintVariety,
 # this makes more sense. You have to define this function yourself,
 # but now it does not depend on symbolic algebra from HomotopyContinuation.jl
 
-# TODO add a tracker struct that keeps track of the current solution
+# TODO add basepoint p+εv to the struct TrackerWithStartSolution, so we only have to solve the ED linear system once
 # TODO reduce redundancy
+
+mutable struct TrackerWithStartSolution
+	tracker
+	startSolution
+	#basepoint
+
+	function TrackerWithStartSolution(T::HomotopyContinuation.Tracker, startSol::Vector)
+		new(T,startSol)
+	end
+end
+
+function setStartSolution(T::TrackerWithStartSolution, startSol::Vector)
+	setfield!(T, :startSolution, startSol)
+end
 
 mutable struct ConstraintVariety
     variables
@@ -62,7 +76,7 @@ mutable struct ConstraintVariety
 		EDSystem = HomotopyContinuation.System(∇Lagrange, variables=vcat(varz,λ), parameters=u)
 		p0 = HomotopyContinuation.randn(Float64, N)
 		H = HomotopyContinuation.ParameterHomotopy(EDSystem, start_parameters = p0, target_parameters = p0)
-		EDTracker = HomotopyContinuation.Tracker(H)
+		EDTracker = TrackerWithStartSolution(HomotopyContinuation.Tracker(H),[])
         new(varz,algeqnz,dg,N,d,Ωs,eqnz,EDTracker)
     end
 
@@ -94,7 +108,7 @@ mutable struct ConstraintVariety
 		EDSystem = HomotopyContinuation.System(∇Lagrange, variables=vcat(varz,λ), parameters=u)
 		p0 = HomotopyContinuation.randn(Float64, N)
 		H = HomotopyContinuation.ParameterHomotopy(EDSystem, start_parameters = p0, target_parameters = p0)
-		EDTracker = HomotopyContinuation.Tracker(H)
+		EDTracker = TrackerWithStartSolution(HomotopyContinuation.Tracker(H),[])
         new(varz,eqnz,dg,N,d,Ωs,eqnz,EDTracker)
     end
 
@@ -111,7 +125,7 @@ mutable struct ConstraintVariety
 		EDSystem = HomotopyContinuation.System(∇Lagrange, variables=vcat(varz,λ), parameters=u)
 		p0 = HomotopyContinuation.randn(Float64, N)
 		H = HomotopyContinuation.ParameterHomotopy(EDSystem, start_parameters = p0, target_parameters = p0)
-		EDTracker = HomotopyContinuation.Tracker(H)
+		EDTracker = TrackerWithStartSolution(HomotopyContinuation.Tracker(H),[])
         new(varz,algeqnz,dg,N,d,[],eqnz,EDTracker)
     end
 
@@ -126,7 +140,7 @@ mutable struct ConstraintVariety
 		EDSystem = HomotopyContinuation.System(∇Lagrange, variables=vcat(varz,λ), parameters=u)
 		p0 = HomotopyContinuation.randn(Float64, N)
 		H = HomotopyContinuation.ParameterHomotopy(EDSystem, start_parameters = p0, target_parameters = p0)
-		EDTracker = HomotopyContinuation.Tracker(H)
+		EDTracker = TrackerWithStartSolution(HomotopyContinuation.Tracker(H),[])
         new(varz,eqnz,dg,N,d,[],impliciteq,EDTracker)
     end
 end
@@ -183,16 +197,10 @@ function gaussnewtonstep(ConstraintVariety, p, stepsize, v; tol=1e-8)
 end
 
 # We predict in the projected gradient direction and correct by solving a Euclidian Distance Problem
-function EDStep(ConVar, p, stepsize, v, N)
-	EDSystem = ConVar.EDTracker.homotopy.F.interpreted.system
-	q0 = p+1e-3*N[:,1]
+function EDStep(ConVar, p, stepsize, v)
 	q = p+stepsize*v
-	A = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(EDSystem.expressions, EDSystem.variables[length(p)+1:end]), ConVar.variables => p)
-	λ0 = A\(-HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(EDSystem.expressions, EDSystem.variables[length(p)+1:end] => [0 for _ in length(p)+1:length(EDSystem.variables)]), ConVar.variables => p),  EDSystem.parameters=>q0))
-	T = ConVar.EDTracker
-	HomotopyContinuation.start_parameters!(T,q0)
-	HomotopyContinuation.target_parameters!(T,q)
-	res = HomotopyContinuation.solution(HomotopyContinuation.track(T,vcat(p, λ0)))
+	HomotopyContinuation.target_parameters!(ConVar.EDTracker.tracker,q)
+	res = HomotopyContinuation.solution(HomotopyContinuation.track(ConVar.EDTracker.tracker, ConVar.EDTracker.startSolution))
 	if all(point->Base.abs(point.im)<1e-6, res)
 		return [point.re for point in res[1:length(p)]], true
 	else
@@ -245,7 +253,7 @@ function twostep(F, p, stepsize)
 end
 
 # Determines, which optimization algorithm to use
-function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v, N)
+function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v)
 	if(whichstep=="twostep")
 		return(twostep(F, p, stepsize))
 	elseif whichstep=="onestep"
@@ -253,7 +261,7 @@ function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v, N)
 	elseif whichstep=="gaussnewtonstep"
 		return(gaussnewtonstep(ConstraintVariety, p, stepsize, v))
 	elseif whichstep=="EDStep"
-		return(EDStep(ConstraintVariety, p, stepsize, v, N))
+		return(EDStep(ConstraintVariety, p, stepsize, v))
 	else
 		throw(error("A step method needs to be provided!"))
 	end
@@ -263,10 +271,17 @@ end
 function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; τ=0.4, r=1e-1, s=0.95, whichstep="twostep")
     α=Base.copy(stepsize)
     p=Base.copy(p0)
-	basenormal, _, basegradient = getNandTandv(p0, G, evaluateobjectivefunctiongradient)
-	time1 = Base.time()
+
+	Basenormal, _, basegradient = getNandTandv(p0, G, evaluateobjectivefunctiongradient)
+	if whichstep=="EDStep"
+		q0 = p+1e-3*Basenormal[:,1]
+		HomotopyContinuation.start_parameters!(G.EDTracker.tracker, q0)
+		A = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(p)+1:end]), G.variables => p)
+		λ0 = A\(-HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(p)+1:end] => [0 for _ in length(p)+1:length(G.EDTracker.tracker.homotopy.F.interpreted.system.variables)]), G.variables => p),  G.EDTracker.tracker.homotopy.F.interpreted.system.parameters=>q0))
+		setStartSolution(G.EDTracker, vcat(p,λ0))
+	end
     while(true)
-		q, success = stepchoice(F, G, whichstep, α, p0, basegradient, basenormal)
+		q, success = stepchoice(F, G, whichstep, α, p0, basegradient)
         success ? p=q : nothing
         Nq, Tq, vq = getNandTandv(p, G, evaluateobjectivefunctiongradient)
         # Proceed until the Wolfe condition is satisfied or the stepsize becomes too small. First we quickly find a lower bound, then we gradually increase this lower-bound
@@ -274,7 +289,7 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
 
 			for indicator in 1:7
                 αsub = α*1.1
-				q, success = stepchoice(F, G, whichstep, αsub, p0, basegradient, basenormal)
+				q, success = stepchoice(F, G, whichstep, αsub, p0, basegradient)
                 if(!success)
                     return(p, Nq, Tq, vq, α/stepsize, false, α)
                 end
