@@ -33,7 +33,7 @@ mutable struct ConstraintVariety
     implicitequations
 	EDTracker
 
-	#
+	# Given implicit equations, sample points from the corresponding variety and return the struct
     function ConstraintVariety(eqnz::Function, N::Int, d::Int, numsamples::Int)
         HomotopyContinuation.@var varz[1:N]
         algeqnz = [eqn(varz) for eqn in eqnz]
@@ -66,6 +66,7 @@ mutable struct ConstraintVariety
         new(varz,algeqnz,dg,N,d,Ωs,eqnz,EDTracker)
     end
 
+	# Given variables and HomotopyContinuation-based equations, sample points from the variety and return the corresponding struct
 	function ConstraintVariety(varz, eqnz, N::Int, d::Int, numsamples::Int)
         dg = HomotopyContinuation.differentiate(eqnz, varz)
         randL = HomotopyContinuation.rand_subspace(N; codim=d)
@@ -97,6 +98,7 @@ mutable struct ConstraintVariety
         new(varz,eqnz,dg,N,d,Ωs,eqnz,EDTracker)
     end
 
+	# Implicit Equations, no sampling
     function ConstraintVariety(eqnz,N::Int,d::Int)
         HomotopyContinuation.@var varz[1:N]
         algeqnz = [eqn(varz) for eqn in eqnz]
@@ -113,7 +115,7 @@ mutable struct ConstraintVariety
         new(varz,algeqnz,dg,N,d,[],eqnz,EDTracker)
     end
 
-    # alex added this due to errors with varz versus xvarz variables
+    # HomotopyContinuation-based expressions and variables, no sanples
     function ConstraintVariety(varz,eqnz,N::Int,d::Int)
         dg = HomotopyContinuation.differentiate(eqnz, varz)
 		impliciteq = y->[eqn(varz=>y) for eqn in eqnz]
@@ -129,10 +131,12 @@ mutable struct ConstraintVariety
     end
 end
 
+# Add Samples to an already existing ConstraintVariety
 function addSamples!(G::ConstraintVariety, newSamples)
 	setfield!(G, :samples, vcat(newSamples, G.samples))
 end
 
+# Compute the system that we need for the onestep and twostep method
 function computesystem(p, G::ConstraintVariety,
                 evaluateobjectivefunctiongradient::Function)
 
@@ -167,18 +171,18 @@ function computesystem(p, G::ConstraintVariety,
     end
 end
 
+# We predict in the projected gradient direction and correct by using the Gauss-Newton method
 function gaussnewtonstep(ConstraintVariety, p, stepsize, v; tol=1e-8)
 	q = p+stepsize*v
-	varietyEqn = ConstraintVariety.equations
-	varz = ConstraintVariety.variables
-	jac = Base.hcat([HomotopyContinuation.differentiate(eq,varz) for eq in varietyEqn]...)
-	while(LinearAlgebra.norm([eq(varz=>q) for eq in varietyEqn]) > tol)
-		J = jac(varz=>q)
-		q = q - LinearAlgebra.transpose(LinearAlgebra.inv(LinearAlgebra.transpose(J)*J)*LinearAlgebra.transpose(J))*[eq(varz=>q) for eq in varietyEqn]
+	jac = Base.hcat([HomotopyContinuation.differentiate(eq,ConstraintVariety.variables) for eq in ConstraintVariety.equations]...)
+	while(LinearAlgebra.norm([eq(ConstraintVariety.variables=>q) for eq in ConstraintVariety.equations]) > tol)
+		J = jac(ConstraintVariety.variables=>q)
+		q = q - LinearAlgebra.transpose(LinearAlgebra.inv(LinearAlgebra.transpose(J)*J)*LinearAlgebra.transpose(J))*[eq(ConstraintVariety.variables=>q) for eq in ConstraintVariety.equations]
 	end
 	return q, true
 end
 
+# We predict in the projected gradient direction and correct by solving a Euclidian Distance Problem
 function EDStep(ConVar, p, stepsize, v, N)
 	EDSystem = ConVar.EDTracker.homotopy.F.interpreted.system
 	q0 = p+1e-3*N[:,1]
@@ -196,6 +200,7 @@ function EDStep(ConVar, p, stepsize, v, N)
 	end
 end
 
+# Move a line along the projected gradient direction for the length stepsize and calculate the resulting point of intersection with the variety
 function onestep(F, p, stepsize)
     # we want parameter homotopy from 0.0 to stepsize, so we take two steps
     # first from 0.0 to a complex number parameter, then from that parameter to stepsize.
@@ -212,7 +217,7 @@ function onestep(F, p, stepsize)
     return q, success
 end
 
-
+# Similar to onestep. However, we take an intermediate, complex step to avoid singularities
 function twostep(F, p, stepsize)
     # we want parameter homotopy from 0.0 to stepsize, so we take two steps
     # first from 0.0 to a complex number parameter, then from that parameter to stepsize.
@@ -239,6 +244,7 @@ function twostep(F, p, stepsize)
     return q, success
 end
 
+# Determines, which optimization algorithm to use
 function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v, N)
 	if(whichstep=="twostep")
 		return(twostep(F, p, stepsize))
@@ -251,7 +257,6 @@ function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v, N)
 	else
 		throw(error("A step method needs to be provided!"))
 	end
-	return(nothing)
 end
 
 
@@ -271,7 +276,7 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
                 αsub = α*1.1
 				q, success = stepchoice(F, G, whichstep, αsub, p0, basegradient, basenormal)
                 if(!success)
-                    return(p, Nq, Tq, vq, α/stepsize, true, α)
+                    return(p, Nq, Tq, vq, α/stepsize, false, α)
                 end
                 Nqsub, Tqsub, vqsub = getNandTandv(q, G, evaluateobjectivefunctiongradient)
                 if( Q(p0)-Q(q) < r*αsub*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)) || vqsub'*basegradient < 0)
@@ -292,6 +297,7 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
     end
 end
 
+# Get the tangent and normal space of a ConstraintVariety at a point q
 function getNandTandv(q, G::ConstraintVariety,
                     evaluateobjectivefunctiongradient::Function)
 
@@ -309,6 +315,7 @@ function getNandTandv(q, G::ConstraintVariety,
     return Nq, Tq, vq
 end
 
+# Parallel transport the vector vj from the tangent space Tj to the tangent space Ti
 function paralleltransport(vj, Tj, Ti)
     # transport vj ∈ Tj to become a vector ϕvj ∈ Ti
     # cols(Tj) give ONB for home tangent space, cols(Ti) give ONB for target tangent space
