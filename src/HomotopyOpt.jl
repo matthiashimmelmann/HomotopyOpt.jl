@@ -202,6 +202,7 @@ function EDStep(ConVar, p, stepsize, v)
 	HomotopyContinuation.target_parameters!(ConVar.EDTracker.tracker,q)
 	res = HomotopyContinuation.solution(HomotopyContinuation.track(ConVar.EDTracker.tracker, ConVar.EDTracker.startSolution))
 	if all(point->Base.abs(point.im)<1e-6, res)
+		# TODO set start parameter to be q? Maybe also at a different point?
 		return [point.re for point in res[1:length(p)]], true
 	else
 		return p, false
@@ -268,7 +269,7 @@ function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v)
 end
 
 
-function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; τ=0.4, r=1e-1, s=0.95, whichstep="twostep")
+function alternative_backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; τ=0.4, r=1e-1, s=0.95, whichstep="twostep")
     α=Base.copy(stepsize)
     p=Base.copy(p0)
 
@@ -291,31 +292,92 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
                 αsub = α*1.1
 				q, success = stepchoice(F, G, whichstep, αsub, p0, basegradient)
                 if(!success)
-                    return(p, Nq, Tq, vq, α/stepsize, false, α)
+                    return(p, Nq, Tq, vq, false, α)
                 end
                 Nqsub, Tqsub, vqsub = getNandTandv(q, G, evaluateobjectivefunctiongradient)
                 if( Q(p0)-Q(q) < r*αsub*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)) || vqsub'*basegradient < 0)
-                    return(p, Nq, Tq, vq, α/stepsize, true, α)
+                    return(p, Nq, Tq, vq, true, α)
                 elseif( Base.abs(basegradient'*evaluateobjectivefunctiongradient(q)) <= Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0))*s )
-                    return(q, Nqsub, Tqsub, vqsub, αsub/stepsize, true, αsub)
+                    return(q, Nqsub, Tqsub, vqsub, true, αsub)
                 else
                     p=q; α=αsub; vq=vqsub; Tq=Tqsub; Nq=Nqsub;
                 end
             end
-			return(p, Nq, Tq, vq, α/stepsize, true, α)
+			return(p, Nq, Tq, vq, true, α)
 
 		elseif α<1e-9
-	    	return(p, Nq, Tq, vq, α/stepsize, false, stepsize)
+	    	return(p, Nq, Tq, vq, false, stepsize)
         else
             α=τ*α
         end
     end
 end
 
+function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64, maxstep::Float64; r=1e-4, s=0.9, whichstep="twostep")
+	# Method from Numerical Optimization - Nocedal, Wright
+	Basenormal, _, basegradient = getNandTandv(p0, G, evaluateobjectivefunctiongradient)
+	α0 = 0
+	α = [0, stepsize]
+	qpoints = [p0]
+	if whichstep=="EDStep"
+		q0 = qpoints[end]+1e-3*Basenormal[:,1]
+		HomotopyContinuation.start_parameters!(G.EDTracker.tracker, q0)
+		A = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(qpoints[end])+1:end]), G.variables => qpoints[end])
+		λ0 = A\(-HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(qpoints[end])+1:end] => [0 for _ in length(qpoints[end])+1:length(G.EDTracker.tracker.homotopy.F.interpreted.system.variables)]), G.variables => qpoints[end]),  G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q0))
+		setStartSolution(G.EDTracker, vcat(qpoints[end], λ0))
+	end
+
+    while α[end] <= maxstep
+		q, success = stepchoice(F, G, whichstep, α[end], p0, basegradient)
+        if success
+			push!(qpoints,q); length(qpoints)>2 ? deleteat!(qpoints,1) : nothing
+		end
+        Nq, Tq, vq = getNandTandv(q, G, evaluateobjectivefunctiongradient)
+        # Proceed until the Wolfe condition is satisfied or the stepsize becomes too small. First we quickly find a lower bound, then we gradually increase this lower-bound
+		if ( ( Q(q) > Q(p0) + r*α[end]*basegradient'*evaluateobjectivefunctiongradient(p0) || (Q(q) > Q(qpoints[end-1]) && length(qpoints)>2) ) && success)
+			helper = zoom(α[end-1], α[end], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s)
+			return helper[1], Nq, Tq, vq, helper[2], helper[end]
+		end
+		if ( Base.abs(basegradient'*evaluateobjectivefunctiongradient(q)) <= Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0))*s ) && success
+			return q, Nq, Tq, vq, success, α[end]
+		end
+		if basegradient'*evaluateobjectivefunctiongradient(q) >= 0 && success
+			helper = zoom(α[end], α[end-1], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s)
+			return helper[1], Nq, Tq, vq, helper[2], helper[end]
+		end
+
+		if (success)
+			push!(α, 2*(α[end]))
+		else
+			push!(α, 0.2*(α[end]))
+		end
+		deleteat!(α, 1)
+    end
+	return q, Nq, Tq, vq, success, α[end-1]
+end
+
+function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s)
+	while true
+		α = 0.5*(αlo+αhi)
+		q, success = stepchoice(F, G, whichstep, α, p0, basegradient)
+		if  Q(q) > Q(p0) + r*α*basegradient'*evaluateobjectivefunctiongradient(p0)
+			αhi = α
+		else
+			if Base.abs(basegradient'*evaluateobjectivefunctiongradient(q)) <= Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0))*s
+				return q, success, α
+			end
+			if basegradient'*evaluateobjectivefunctiongradient(q)*(αhi-αlo) >= 0
+				αhi = αlo
+			end
+			αlo = α
+		end
+	end
+end
+
+
 # Get the tangent and normal space of a ConstraintVariety at a point q
 function getNandTandv(q, G::ConstraintVariety,
                     evaluateobjectivefunctiongradient::Function)
-
     dgq = HomotopyContinuation.ModelKit.evaluate(G.jacobian, G.variables => q)
     Qq,_ = LinearAlgebra.qr(transpose(dgq))
     Nq = Qq[:, 1:(G.ambientdimension - G.dimensionofvariety)] # O.N.B. for the normal space at q
@@ -360,7 +422,7 @@ end
 function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
                 objectiveFunction::Function,
                 evaluateobjectivefunctiongradient::Function;
-                maxsteps, decreasefactor=2, initialtime, maxseconds, whichstep="twostep")
+                maxsteps, decreasefactor=2, initialtime, maxseconds, whichstep="twostep", maxstep=10.0)
     timesturned, valleysfound, F = 0, 0, HomotopyContinuation.System([G.variables[1]])
     _, Tp, vp = getNandTandv(p, G, evaluateobjectivefunctiongradient)
     Ts = [Tp] # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
@@ -373,7 +435,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
 		if whichstep=="onestep" || whichstep=="twostep"
         	F = computesystem(qs[end], G, evaluateobjectivefunctiongradient)
 		end
-        q, Nq, Tq, vq, factor, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], stepsize; whichstep)
+        q, Nq, Tq, vq, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], stepsize, maxstep; whichstep)
 		push!(qs, q)
         push!(Ts, Tq)
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
@@ -382,6 +444,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
 		length(vs)>3 ? deleteat!(vs, 1) : nothing
         if ns[end] < tolerance
             return LocalStepsResult(p,ε0,qs,vs,ns,q,stepsize,true,timesturned,valleysfound)
+		# TODO I believe parallel transport is redundant. I think it is already covered by the backtracking linesearch. Not sure though.
         elseif ((ns[end] - ns[end-1]) > 0.0)
             if length(ns) > 2 && ((ns[end-1] - ns[end-2]) < 0.0)
                 # projected norms were decreasing, but started increasing!
@@ -390,13 +453,12 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
                 ϕvj = paralleltransport(vs[end], Ts[end], Ts[end-2])
                 if ((vs[end-2]' * ϕvj) < 0.0)
                     # we think there is a critical point we skipped past! slow down!
-                    return LocalStepsResult(p,ε0,qs,vs,ns,qs[end-2],stepsize / decreasefactor,false,timesturned+1,valleysfound)
+                    return LocalStepsResult(p,ε0,qs,vs,ns,qs[end-2],stepsize/decreasefactor,false,timesturned+1,valleysfound)
                 end
             end
         end
         # The next (initial) stepsize is determined by the previous step and how much the energy function changed - in accordance with RieOpt.
-        # A factor dependent on how how small the stepsize backtracking linesearch produces is compared to its input. The question here is: Does backtracking slow down significantly? If the quotient is close to 1 => inrease stepsize
-		stepsize = Base.minimum([success ? Base.maximum([stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])) , 3^factor*0.00001]) : 3*stepsize, 10.0])
+		stepsize = Base.minimum([success ? Base.maximum([stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])), 0.0001]) : 0.1*stepsize, maxstep])
     end
     return LocalStepsResult(p,ε0,qs,vs,ns,qs[end],stepsize,false,timesturned,valleysfound)
 end
