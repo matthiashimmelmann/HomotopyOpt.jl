@@ -23,6 +23,9 @@ export ConstraintVariety,
 # TODO add basepoint p+εv to the struct TrackerWithStartSolution, so we only have to solve the ED linear system once
 # TODO reduce redundancy
 
+#=
+ Equips a HomotopyContinuation.Tracker with a start Solution that can be changed on the fly
+=#
 mutable struct TrackerWithStartSolution
 	tracker
 	startSolution
@@ -37,6 +40,10 @@ function setStartSolution(T::TrackerWithStartSolution, startSol::Vector)
 	setfield!(T, :startSolution, startSol)
 end
 
+#=
+ An object that describes a constraint variety by giving its generating equations, coordinate variables, its dimension and its jacobian.
+ Additionally, it contains the system describing the Euclidian Distance Problem and samples from the variety.
+=#
 mutable struct ConstraintVariety
     variables
     equations
@@ -145,12 +152,16 @@ mutable struct ConstraintVariety
     end
 end
 
-# Add Samples to an already existing ConstraintVariety
+#=
+Add Samples to an already existing ConstraintVariety
+=#
 function addSamples!(G::ConstraintVariety, newSamples)
 	setfield!(G, :samples, vcat(newSamples, G.samples))
 end
 
-# Compute the system that we need for the onestep and twostep method
+#=
+Compute the system that we need for the onestep and twostep method
+=#
 function computesystem(p, G::ConstraintVariety,
                 evaluateobjectivefunctiongradient::Function)
 
@@ -185,7 +196,9 @@ function computesystem(p, G::ConstraintVariety,
     end
 end
 
-# We predict in the projected gradient direction and correct by using the Gauss-Newton method
+#=
+ We predict in the projected gradient direction and correct by using the Gauss-Newton method
+=#
 function gaussnewtonstep(ConstraintVariety, p, stepsize, v; tol=1e-8)
 	q = p+stepsize*v
 	jac = Base.hcat([HomotopyContinuation.differentiate(eq,ConstraintVariety.variables) for eq in ConstraintVariety.equations]...)
@@ -196,7 +209,9 @@ function gaussnewtonstep(ConstraintVariety, p, stepsize, v; tol=1e-8)
 	return q, true
 end
 
-# We predict in the projected gradient direction and correct by solving a Euclidian Distance Problem
+#=
+We predict in the projected gradient direction and correct by solving a Euclidian Distance Problem
+=#
 function EDStep(ConVar, p, stepsize, v)
 	q = p+stepsize*v
 	HomotopyContinuation.target_parameters!(ConVar.EDTracker.tracker,q)
@@ -209,7 +224,9 @@ function EDStep(ConVar, p, stepsize, v)
 	end
 end
 
-# Move a line along the projected gradient direction for the length stepsize and calculate the resulting point of intersection with the variety
+#=
+ Move a line along the projected gradient direction for the length stepsize and calculate the resulting point of intersection with the variety
+=#
 function onestep(F, p, stepsize)
     # we want parameter homotopy from 0.0 to stepsize, so we take two steps
     # first from 0.0 to a complex number parameter, then from that parameter to stepsize.
@@ -226,7 +243,9 @@ function onestep(F, p, stepsize)
     return q, success
 end
 
-# Similar to onestep. However, we take an intermediate, complex step to avoid singularities
+#=
+ Similar to onestep. However, we take an intermediate, complex step to avoid singularities
+=#
 function twostep(F, p, stepsize)
     # we want parameter homotopy from 0.0 to stepsize, so we take two steps
     # first from 0.0 to a complex number parameter, then from that parameter to stepsize.
@@ -253,7 +272,9 @@ function twostep(F, p, stepsize)
     return q, success
 end
 
-# Determines, which optimization algorithm to use
+#=
+Determines, which optimization algorithm to use
+=#
 function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v)
 	if(whichstep=="twostep")
 		return(twostep(F, p, stepsize))
@@ -268,7 +289,7 @@ function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v)
 	end
 end
 
-
+# WARNING This one is worse than backtracking_linesearch
 function alternative_backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; τ=0.4, r=1e-1, s=0.95, whichstep="twostep")
     α=Base.copy(stepsize)
     p=Base.copy(p0)
@@ -313,28 +334,27 @@ function alternative_backtracking_linesearch(Q::Function, F::HomotopyContinuatio
     end
 end
 
-function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64, maxstep::Float64; r=1e-4, s=0.9, whichstep="twostep")
-	# Method from Numerical Optimization - Nocedal, Wright
+#=
+Use line search with the strong Wolfe condition to find the optimal step length.
+This particular method can be found in Nocedal & Wright: Numerical Optimization
+=#
+function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64, maxstep::Float64; r=1e-2, s=0.8, whichstep="twostep")
 	Basenormal, _, basegradient = getNandTandv(p0, G, evaluateobjectivefunctiongradient)
 	α0 = 0
 	α = [0, stepsize]
-	qpoints = [p0]
+	p = Base.copy(p0)
 	if whichstep=="EDStep"
-		q0 = qpoints[end]+1e-3*Basenormal[:,1]
+		q0 = p+1e-3*Basenormal[:,1]
 		HomotopyContinuation.start_parameters!(G.EDTracker.tracker, q0)
-		A = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(qpoints[end])+1:end]), G.variables => qpoints[end])
-		λ0 = A\(-HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(qpoints[end])+1:end] => [0 for _ in length(qpoints[end])+1:length(G.EDTracker.tracker.homotopy.F.interpreted.system.variables)]), G.variables => qpoints[end]),  G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q0))
-		setStartSolution(G.EDTracker, vcat(qpoints[end], λ0))
+		A = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(p)+1:end]), G.variables => p)
+		λ0 = A\(-HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(p)+1:end] => [0 for _ in length(p)+1:length(G.EDTracker.tracker.homotopy.F.interpreted.system.variables)]), G.variables => p),  G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q0))
+		setStartSolution(G.EDTracker, vcat(p, λ0))
 	end
 
-    while α[end] <= maxstep
+    while true
 		q, success = stepchoice(F, G, whichstep, α[end], p0, basegradient)
-        if success
-			push!(qpoints,q); length(qpoints)>2 ? deleteat!(qpoints,1) : nothing
-		end
         Nq, Tq, vq = getNandTandv(q, G, evaluateobjectivefunctiongradient)
-        # Proceed until the Wolfe condition is satisfied or the stepsize becomes too small. First we quickly find a lower bound, then we gradually increase this lower-bound
-		if ( ( Q(q) > Q(p0) + r*α[end]*basegradient'*evaluateobjectivefunctiongradient(p0) || (Q(q) > Q(qpoints[end-1]) && length(qpoints)>2) ) && success)
+		if ( ( Q(q) > Q(p0) + r*α[end]*basegradient'*evaluateobjectivefunctiongradient(p0) || (Q(q) > Q(p) && p!=p0) ) && success)
 			helper = zoom(α[end-1], α[end], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s)
 			return helper[1], Nq, Tq, vq, helper[2], helper[end]
 		end
@@ -348,19 +368,26 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
 
 		if (success)
 			push!(α, 2*(α[end]))
+			p = q
 		else
-			push!(α, 0.2*(α[end]))
+			return p, Nq, Tq, vq, success, α[end]
 		end
 		deleteat!(α, 1)
+		if α[end] > maxstep
+			return q, Nq, Tq, vq, success, α[end-1]
+		end
     end
-	return q, Nq, Tq, vq, success, α[end-1]
 end
 
+#=
+Zoom in on the step lengths between αlo and αhi to find the optimal step size here. This is part of the backtracking line search
+=#
 function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s)
+	qlo, suclo = stepchoice(F, G, whichstep, αlo, p0, basegradient)
 	while true
 		α = 0.5*(αlo+αhi)
 		q, success = stepchoice(F, G, whichstep, α, p0, basegradient)
-		if  Q(q) > Q(p0) + r*α*basegradient'*evaluateobjectivefunctiongradient(p0)
+		if  Q(q) > Q(p0) + r*α*basegradient'*evaluateobjectivefunctiongradient(p0) || Q(q) >= Q(qlo)
 			αhi = α
 		else
 			if Base.abs(basegradient'*evaluateobjectivefunctiongradient(q)) <= Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0))*s
@@ -370,12 +397,15 @@ function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep,
 				αhi = αlo
 			end
 			αlo = α
+			qlo, suclo = q, success
 		end
 	end
 end
 
 
-# Get the tangent and normal space of a ConstraintVariety at a point q
+#=
+ Get the tangent and normal space of a ConstraintVariety at a point q
+=#
 function getNandTandv(q, G::ConstraintVariety,
                     evaluateobjectivefunctiongradient::Function)
     dgq = HomotopyContinuation.ModelKit.evaluate(G.jacobian, G.variables => q)
@@ -392,7 +422,9 @@ function getNandTandv(q, G::ConstraintVariety,
     return Nq, Tq, vq
 end
 
-# Parallel transport the vector vj from the tangent space Tj to the tangent space Ti
+#=
+ Parallel transport the vector vj from the tangent space Tj to the tangent space Ti
+=#
 function paralleltransport(vj, Tj, Ti)
     # transport vj ∈ Tj to become a vector ϕvj ∈ Ti
     # cols(Tj) give ONB for home tangent space, cols(Ti) give ONB for target tangent space
@@ -402,6 +434,9 @@ function paralleltransport(vj, Tj, Ti)
     return ϕvj
 end
 
+#=
+An object that contains the iteration's information like norms of the projected gradient, step sizes and search directions
+=#
 struct LocalStepsResult
     initialpoint
     initialstepsize
@@ -419,10 +454,14 @@ struct LocalStepsResult
     end
 end
 
+#= Take `maxsteps` steps to try and converge to an optimum. In each step, we use backtracking linesearch
+to determine the optimal step size to go along the search direction
+WARNING This is redundant and can be merged with findminima
+=#
 function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
                 objectiveFunction::Function,
                 evaluateobjectivefunctiongradient::Function;
-                maxsteps, decreasefactor=2, initialtime, maxseconds, whichstep="twostep", maxstep=10.0)
+                maxsteps, decreasefactor=2, initialtime, maxseconds, whichstep="twostep", maxstepsize=100.0)
     timesturned, valleysfound, F = 0, 0, HomotopyContinuation.System([G.variables[1]])
     _, Tp, vp = getNandTandv(p, G, evaluateobjectivefunctiongradient)
     Ts = [Tp] # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
@@ -435,7 +474,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
 		if whichstep=="onestep" || whichstep=="twostep"
         	F = computesystem(qs[end], G, evaluateobjectivefunctiongradient)
 		end
-        q, Nq, Tq, vq, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], stepsize, maxstep; whichstep)
+        q, Nq, Tq, vq, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], stepsize, maxstepsize; whichstep)
 		push!(qs, q)
         push!(Ts, Tq)
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
@@ -458,11 +497,14 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
             end
         end
         # The next (initial) stepsize is determined by the previous step and how much the energy function changed - in accordance with RieOpt.
-		stepsize = Base.minimum([success ? Base.maximum([stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])), 0.0001]) : 0.1*stepsize, maxstep])
+		stepsize = Base.minimum([ Base.maximum([ success ? stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])/(vs[end]'*evaluateobjectivefunctiongradient(qs[end]))  : 0.01*stepsize, 0.0001]), maxstepsize])
     end
     return LocalStepsResult(p,ε0,qs,vs,ns,qs[end],stepsize,false,timesturned,valleysfound)
 end
 
+#=
+ Output object of the method `findminima`
+=#
 struct OptimizationResult
     computedpoints
     initialpoint
@@ -478,6 +520,10 @@ struct OptimizationResult
     end
 end
 
+#=
+ The main function of this package. Given an initial point, a tolerance, an objective function and a constraint variety,
+ we try to find the objective function's closest local minimum to the initial guess.
+=#
 function findminima(p0, tolerance,
                 G::ConstraintVariety,
                 objectiveFunction::Function;
@@ -504,12 +550,11 @@ function findminima(p0, tolerance,
     end
 
 	println("We ran out of time... Try setting `maxseconds` to a larger value than $maxseconds")
-    return OptimizationResult(ps,p0,ε0,tolerance,converged,lastLSR,G,evaluateobjectivefunctiongradient)
+    return OptimizationResult(ps,p0,ε0,tolerance,lastLSR.converged,lastLSR,G,evaluateobjectivefunctiongradient)
 end
 
 # Below are functions `watch` and `draw`
 # to visualize low-dimensional examples
-
 function watch(result::OptimizationResult; totalseconds=5.0)
     ps = result.computedpoints
     samples = result.constraintvariety.samples
