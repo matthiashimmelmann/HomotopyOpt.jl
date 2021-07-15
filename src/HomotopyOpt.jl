@@ -6,7 +6,7 @@ import ImplicitPlots: implicit_plot
 import Plots
 import Statistics
 import Implicit3DPlotting: plot_implicit_surface, plot_implicit_surface!, plot_implicit_curve, plot_implicit_curve!#, GLMakiePlottingLibrary
-import GLMakie as GLMakiePlottingLibrary
+import Implicit3DPlotting.GLMakiePlottingLibrary as GLMakiePlottingLibrary
 import ForwardDiff
 
 export ConstraintVariety,
@@ -199,7 +199,7 @@ end
 #=
  We predict in the projected gradient direction and correct by using the Gauss-Newton method
 =#
-function gaussnewtonstep(ConstraintVariety, p, stepsize, v; tol=1e-10)
+function gaussnewtonstep(ConstraintVariety, p, stepsize, v; tol=1e-8)
 	q = p+stepsize*v
 	jac = Base.hcat([HomotopyContinuation.differentiate(eq,ConstraintVariety.variables) for eq in ConstraintVariety.equations]...)
 	while(LinearAlgebra.norm([eq(ConstraintVariety.variables=>q) for eq in ConstraintVariety.equations]) > tol)
@@ -277,7 +277,7 @@ end
 =#
 function isMinimum(G::ConstraintVariety, Q::Function, Tp, v, p::Vector; tol=1e-12, criticaltol=1e-3)
 	H = ForwardDiff.hessian(Q, p)
-	HConstraints = [HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(HomotopyContinuation.differentiate(eq, G.variables), G.variables), p) for eq in G.equations]
+	HConstraints = [HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(HomotopyContinuation.differentiate(eq, G.variables), G.variables), G.variables=>p) for eq in G.equations]
 	Qalg = Q(p)+ (G.variables-p)'*ForwardDiff.gradient(Q,p)+0.5*(G.variables-p)'*H*(G.variables-p)
 	HomotopyContinuation.@var λ[1:length(G.equations)]
 	L = Qalg+λ'*G.equations
@@ -429,7 +429,7 @@ end
 Use line search with the strong Wolfe condition to find the optimal step length.
 This particular method can be found in Nocedal & Wright: Numerical Optimization
 =#
-function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; maxstepsize=100.0, r=1e-2, s=0.8, whichstep="twostep")
+function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; maxstepsize=100.0, r=5e-2, s=0.75, whichstep="twostep")
 	Basenormal, _, basegradient = getNandTandv(p0, G, evaluateobjectivefunctiongradient)
 	α0 = 0
 	α = [0, stepsize]
@@ -570,7 +570,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
 		if whichstep=="onestep" || whichstep=="twostep"
         	F = computesystem(qs[end], G, evaluateobjectivefunctiongradient)
 		end
-        q, Nq, Tq, vq, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], stepsize; whichstep, maxstepsize)
+        q, Nq, Tq, vq, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], Float64(stepsize); whichstep, maxstepsize)
 		push!(qs, q)
         push!(Ts, Tq)
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
@@ -624,13 +624,13 @@ end
 function findminima(p0, tolerance,
                 G::ConstraintVariety,
                 objectiveFunction::Function;
-                maxseconds=100, maxlocalsteps=15, initialstepsize=1.0, whichstep="twostep")
+                maxseconds=100, maxlocalsteps=1, initialstepsize=1.0, whichstep="twostep")
     initialtime = Base.time()
     p = copy(p0) # initialize before updating `p` below
     ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
     evaluateobjectivefunctiongradient = x -> ForwardDiff.gradient(objectiveFunction, x)
     _, Tq, v = getNandTandv(p0, G, evaluateobjectivefunctiongradient) # Get the projected gradient at the first point
-     # initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
+	# initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
 	ε0 = 2*initialstepsize
     lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,false,0,0)
     while (Base.time() - initialtime) <= maxseconds
