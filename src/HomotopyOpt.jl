@@ -204,7 +204,7 @@ function gaussnewtonstep(ConstraintVariety, p, stepsize, v; tol=1e-8)
 	jac = Base.hcat([HomotopyContinuation.differentiate(eq,ConstraintVariety.variables) for eq in ConstraintVariety.equations]...)
 	while(LinearAlgebra.norm([eq(ConstraintVariety.variables=>q) for eq in ConstraintVariety.equations]) > tol)
 		J = jac(ConstraintVariety.variables=>q)
-		q = q - 0.5*LinearAlgebra.transpose(LinearAlgebra.pinv(LinearAlgebra.transpose(J)*J)*LinearAlgebra.transpose(J))*[eq(ConstraintVariety.variables=>q) for eq in ConstraintVariety.equations]
+		q .= q .- LinearAlgebra.pinv(J*LinearAlgebra.transpose(J))*J*[eq(ConstraintVariety.variables=>q) for eq in ConstraintVariety.equations]
 	end
 	return q, true
 end
@@ -278,7 +278,7 @@ end
 function isMinimum(G::ConstraintVariety, Q::Function, Tp, v, p::Vector; tol=1e-12, criticaltol=1e-3)
 	H = ForwardDiff.hessian(Q, p)
 	HConstraints = [HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(HomotopyContinuation.differentiate(eq, G.variables), G.variables), G.variables=>p) for eq in G.equations]
-	Qalg = Q(p)+ (G.variables-p)'*ForwardDiff.gradient(Q,p)+0.5*(G.variables-p)'*H*(G.variables-p)
+	Qalg = Q(p)+(G.variables-p)'*ForwardDiff.gradient(Q,p)+0.5*(G.variables-p)'*H*(G.variables-p)
 	HomotopyContinuation.@var λ[1:length(G.equations)]
 	L = Qalg+λ'*G.equations
 	∇L = HomotopyContinuation.differentiate(L, vcat(G.variables, λ))
@@ -429,7 +429,7 @@ end
 Use line search with the strong Wolfe condition to find the optimal step length.
 This particular method can be found in Nocedal & Wright: Numerical Optimization
 =#
-function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; maxstepsize=100.0, r=5e-2, s=0.75, whichstep="twostep")
+function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; maxstepsize=100.0, r=1e-3, s=0.8, whichstep="twostep")
 	Basenormal, _, basegradient = getNandTandv(p0, G, evaluateobjectivefunctiongradient)
 	α0 = 0
 	α = [0, stepsize]
@@ -444,15 +444,15 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
     while true
 		q, success = stepchoice(F, G, whichstep, α[end], p0, basegradient)
         Nq, Tq, vq = getNandTandv(q, G, evaluateobjectivefunctiongradient)
-		if ( ( Q(q) > Q(p0) + r*α[end]*basegradient'*evaluateobjectivefunctiongradient(p0) || (Q(q) > Q(p0) && q!=p0) ) && success)
+		if ( ( Q(q) > Q(p0) + r*α[end]*basegradient'*basegradient || (Q(q) > Q(p0) && q!=p0) ) && success)
 			helper = zoom(α[end-1], α[end], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s)
 			Nq, Tq, vq = getNandTandv(helper[1], G, evaluateobjectivefunctiongradient)
 			return helper[1], Nq, Tq, vq, helper[2], helper[end]
 		end
-		if ( Base.abs(basegradient'*evaluateobjectivefunctiongradient(q)) <= Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0))*s ) && success
+		if ( Base.abs(basegradient'*vq) <= s*Base.abs(basegradient'*basegradient) ) && success
 			return q, Nq, Tq, vq, success, α[end]
 		end
-		if basegradient'*evaluateobjectivefunctiongradient(q) <= 0 && success
+		if basegradient'*vq <= 0 && success
 			helper = zoom(α[end], α[end-1], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s)
 			Nq, Tq, vq = getNandTandv(helper[1], G, evaluateobjectivefunctiongradient)
 			return helper[1], Nq, Tq, vq, helper[2], helper[end]
@@ -482,13 +482,15 @@ function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep,
 	for i in 1:15
 		global α = 0.5*(αlo+αhi)
 		global q, success = stepchoice(F, G, whichstep, α, p0, basegradient)
-		if  Q(q) > Q(p0) + r*α*basegradient'*evaluateobjectivefunctiongradient(p0) || Q(q) >= Q(qlo)
+		_, _, vq = getNandTandv(q, G, evaluateobjectivefunctiongradient)
+
+		if  Q(q) > Q(p0) + r*α*basegradient'*basegradient || Q(q) >= Q(qlo)
 			αhi = α
 		else
-			if Base.abs(basegradient'*evaluateobjectivefunctiongradient(q)) <= Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0))*s
+			if Base.abs(basegradient'*vq) <= Base.abs(basegradient'*basegradient)*s
 				return q, success, α
 			end
-			if basegradient'*evaluateobjectivefunctiongradient(q)*(αhi-αlo) >= 0
+			if basegradient'*vq*(αhi-αlo) >= 0
 				αhi = αlo
 			end
 			αlo = α
