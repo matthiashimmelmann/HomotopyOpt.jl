@@ -638,7 +638,6 @@ function findminima(p0, tolerance,
     while (Base.time() - initialtime) <= maxseconds
         # update LSR, only store the *last local run*
         lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, initialtime, maxseconds, whichstep)
-		println("Norm: ", round(lastLSR.allcomputedprojectedgradientvectornorms[end], digits=5), ", energy: ", round(objectiveFunction(lastLSR.allcomputedpoints[end]),digits=5))
         if lastLSR.converged
             push!(ps, lastLSR.allcomputedpoints[end])
 			_, Tq, v = getNandTandv(ps[end], G, evaluateobjectivefunctiongradient)
