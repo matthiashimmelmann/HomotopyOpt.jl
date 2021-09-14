@@ -90,6 +90,7 @@ mutable struct ConstraintVariety
 	# Given variables and HomotopyContinuation-based equations, sample points from the variety and return the corresponding struct
 	function ConstraintVariety(varz, eqnz, N::Int, d::Int, numsamples::Int)
         dg = HomotopyContinuation.differentiate(eqnz, varz)
+		impliciteq = [p->eqn(varz=>p) for eqn in eqnz]
         randL = HomotopyContinuation.rand_subspace(N; codim=d)
         randResult = HomotopyContinuation.solve(eqnz; target_subspace = randL, variables=varz, show_progress = true)
         Ωs = []
@@ -116,7 +117,7 @@ mutable struct ConstraintVariety
 		p0 = HomotopyContinuation.randn(Float64, N)
 		H = HomotopyContinuation.ParameterHomotopy(EDSystem, start_parameters = p0, target_parameters = p0)
 		EDTracker = TrackerWithStartSolution(HomotopyContinuation.Tracker(H),[])
-        new(varz,eqnz,dg,N,d,Ωs,eqnz,EDTracker)
+        new(varz,eqnz,dg,N,d,Ωs,impliciteq,EDTracker)
     end
 
 	# Implicit Equations, no sampling
@@ -139,7 +140,7 @@ mutable struct ConstraintVariety
     # HomotopyContinuation-based expressions and variables, no sanples
     function ConstraintVariety(varz,eqnz,N::Int,d::Int)
         dg = HomotopyContinuation.differentiate(eqnz, varz)
-		impliciteq = y->[eqn(varz=>y) for eqn in eqnz]
+		impliciteq = [y->eqn(varz=>y) for eqn in eqnz]
 		HomotopyContinuation.@var u[1:N]
 		HomotopyContinuation.@var λ[1:length(eqnz)]
 		Lagrange = Base.sum((varz-u).^2) + sum(λ.*eqnz)
@@ -429,7 +430,7 @@ end
 Use line search with the strong Wolfe condition to find the optimal step length.
 This particular method can be found in Nocedal & Wright: Numerical Optimization
 =#
-function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; maxstepsize=100.0, r=1e-3, s=0.8, whichstep="twostep")
+function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; maxstepsize=100.0, r=1e-2, s=0.7, whichstep="twostep")
 	Basenormal, _, basegradient = getNandTandv(p0, G, evaluateobjectivefunctiongradient)
 	α0 = 0
 	α = [0, stepsize]
@@ -656,11 +657,12 @@ end
 
 # Below are functions `watch` and `draw`
 # to visualize low-dimensional examples
-function watch(result::OptimizationResult; totalseconds=5.0)
+function watch(result::OptimizationResult; totalseconds=5.0, kwargs...)
     ps = result.computedpoints
     samples = result.constraintvariety.samples
+	# TODO centroid approach rather than mediannorm and then difference from centroid.
     mediannorm = Statistics.median([LinearAlgebra.norm(p) for p in samples])
-    samples = filter(x -> LinearAlgebra.norm(x) < 2*mediannorm, samples)
+    samples = filter(x -> LinearAlgebra.norm(x) < 2*mediannorm+0.5, samples)
     initplt = Plots.plot() # initialize
     M = length(ps)
     framespersecond = M / totalseconds
@@ -671,56 +673,65 @@ function watch(result::OptimizationResult; totalseconds=5.0)
     dim = length(ps[1])
     anim = Plots.Animation()
     if dim == 2
-        fullx = [minimum([q[1] for q in samples]) - 0.01, maximum([q[1] for q in samples]) + 0.01]
-        fully = [minimum([q[2] for q in samples]) - 0.01, maximum([q[2] for q in samples]) + 0.01]
+        fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
+        fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
         g1 = result.constraintvariety.equations[1] # should only be a curve in ambient R^2
         initplt = implicit_plot(g1, xlims=fullx, ylims=fully, legend=false)
+		initplt = Plots.scatter!(initplt, [ps[end][1]], [ps[end][2]], legend=false, markersize=5, color=:red, xlims=fullx, ylims=fully)
         Plots.frame(anim)
         for p in ps
             # BELOW: only plot next point, delete older points during animation
             # plt = scatter!(initplt, [p[1]], [p[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
             # BELOW: keep old points during animation.
-            initplt = Plots.scatter!(initplt, [p[1]], [p[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
+			initplt = Plots.scatter!(initplt, [p[1]], [p[2]], legend=false, markersize=3.5, color=:black, xlims=fullx, ylims=fully)
             Plots.frame(anim)
         end
         return Plots.gif(anim, "watch$startingtime.gif", fps=framespersecond)
     elseif dim == 3
-        fullx = [minimum([q[1] for q in samples]) - 0.01, maximum([q[1] for q in samples]) + 0.01]
-        fully = [minimum([q[2] for q in samples]) - 0.01, maximum([q[2] for q in samples]) + 0.01]
-        fullz = [minimum([q[3] for q in samples]) - 0.01, maximum([q[3] for q in samples]) + 0.01]
+        fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
+        fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
+        fullz = [minimum([q[3] for q in vcat(samples, ps)]) - 0.05, maximum([q[3] for q in vcat(samples, ps)]) + 0.05]
         g1 = result.constraintvariety.implicitequations[1]
         if(length(result.constraintvariety.implicitequations)>1)
             # should be space curve
             g2 = result.constraintvariety.implicitequations[2]
-            initplt = plot_implicit_curve(g1,g2)
+            initplt = plot_implicit_curve(g1,g2; xlims = (fullx[1], fullx[2]), ylims = (fully[1], fully[2]), zlims = (fullz[1], fullz[2]), kwargs...)
         else
             #should be surface
-            initplt = plot_implicit_surface(g1)
+            initplt = plot_implicit_surface(g1;  xlims = (fullx[1], fullx[2]), ylims = (fully[1], fully[2]), zlims = (fullz[1], fullz[2]), kwargs...)
         end
         pointsys=[GLMakiePlottingLibrary.Point3f0(p) for p in ps]
+		GLMakiePlottingLibrary.scatter!(initplt, pointsys[end];
+					color=:red, markersize=40.0)
         GLMakiePlottingLibrary.record(initplt, "watch$startingtime.gif", 1:length(pointsys); framerate = Int64(round(framespersecond))) do i
-            GLMakiePlottingLibrary.scatter!(initplt, pointsys[i];
-                            color=:black, markersize=20.0)
+			GLMakiePlottingLibrary.scatter!(initplt, pointsys[i];
+	                    color=:black, markersize=30.0)
         end
         return(initplt)
     end
 end
 
-function draw(result::OptimizationResult)
+function draw(result::OptimizationResult; kwargs...)
     dim = length(result.computedpoints[1]) # dimension of the ambient space
+	ps = result.computedpoints
+	samples = result.constraintvariety.samples
+	mediannorm = Statistics.median([LinearAlgebra.norm(p) for p in samples])
+	# TODO centroid approach rather than mediannorm and then difference from centroid.
+	samples = filter(x -> LinearAlgebra.norm(x) < 2*mediannorm+0.5, samples)
     if dim == 2
+		fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
+        fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
         g1 = result.constraintvariety.equations[1] # should only be a curve in ambient R^2
-        plt1 = implicit_plot(g1, xlims=(-2,2), ylims=(-2,2), legend=false)
-        plt2 = implicit_plot(g1, xlims=(-2,2), ylims=(-2,2), legend=false)
+        plt1 = implicit_plot(g1, xlims=fullx, ylims=fully, legend=false)
         #f(x,y) = (x^4 + y^4 - 1) * (x^2 + y^2 - 2) + x^5 * y # replace this with `curve`
         #plt1 = implicit_plot(curve; xlims=(-2,2), ylims=(-2,2), legend=false)
         #plt2 = implicit_plot(curve; xlims=(-2,2), ylims=(-2,2), legend=false)
-        globalqs = result.computedpoints
         localqs = result.lastlocalstepsresult.allcomputedpoints
-        zoomx = [minimum([q[1] for q in localqs]) - 0.01, maximum([q[1] for q in localqs]) + 0.01]
-        zoomy = [minimum([q[2] for q in localqs]) - 0.01, maximum([q[2] for q in localqs]) + 0.01]
-        for q in globalqs
-            plt1 = Plots.scatter!(plt1, [q[1]], [q[2]], legend=false, color=:black, xlims=[-2,2], ylims=[-2,2])
+        zoomx = [minimum([q[1] for q in localqs]) - 0.05, maximum([q[1] for q in localqs]) + 0.05]
+        zoomy = [minimum([q[2] for q in localqs]) - 0.05, maximum([q[2] for q in localqs]) + 0.05]
+		plt2 = implicit_plot(g1, xlims=zoomx, ylims=zoomy, legend=false)
+        for q in ps
+            plt1 = Plots.scatter!(plt1, [q[1]], [q[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
         end
         for q in localqs
             plt2 = Plots.scatter!(plt2, [q[1]], [q[2]], legend=false, color=:blue, xlims=zoomx, ylims=zoomy)
@@ -730,33 +741,30 @@ function draw(result::OptimizationResult)
         plt = Plots.plot(plt1,plt2,pltvnorms, layout=(1,3), size=(900,300) )
         return plt
     elseif dim == 3
-        pointz = result.constraintvariety.samples
-        mediannorm = Statistics.median([LinearAlgebra.norm(pt) for pt in pointz])
-        pointz = filter(x -> LinearAlgebra.norm(x) < 2*mediannorm, pointz)
-        fullx = [minimum([q[1] for q in pointz]) - 0.01, maximum([q[1] for q in pointz]) + 0.01]
-        fully = [minimum([q[2] for q in pointz]) - 0.01, maximum([q[2] for q in pointz]) + 0.01]
-        fullz = [minimum([q[3] for q in pointz]) - 0.01, maximum([q[3] for q in pointz]) + 0.01]
-        globalqs = result.computedpoints
-        zoomx = [minimum([q[1] for q in globalqs]) - 0.01, maximum([q[1] for q in globalqs]) + 0.01]
-        zoomy = [minimum([q[2] for q in globalqs]) - 0.01, maximum([q[2] for q in globalqs]) + 0.01]
-        zoomz = [minimum([q[3] for q in globalqs]) - 0.01, maximum([q[3] for q in globalqs]) + 0.01]
+		fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
+        fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
+        fullz = [minimum([q[3] for q in vcat(samples, ps)]) - 0.05, maximum([q[3] for q in vcat(samples, ps)]) + 0.05]
+		localqs = result.lastlocalstepsresult.allcomputedpoints
+		zoomx = [minimum([q[1] for q in ps]) - 0.05, maximum([q[1] for q in ps]) + 0.05]
+        zoomy = [minimum([q[2] for q in ps]) - 0.05, maximum([q[2] for q in ps]) + 0.05]
+        zoomz = [minimum([q[3] for q in ps]) - 0.05, maximum([q[3] for q in ps]) + 0.05]
 
         fig = GLMakiePlottingLibrary.Figure(resolution = (1450, 550))
-        ax1 = fig[1, 1] = GLMakiePlottingLibrary.AbstractPlotting.MakieLayout.LScene(fig, width=500, height=500, camera = GLMakiePlottingLibrary.cam3d!, raw = false, limits=GLMakiePlottingLibrary.FRect((fullx[1],fully[1],fullz[1]), (fullx[2]-fullx[1],fully[2]-fully[1],fullz[2]-fullz[1])))
-        ax2 = fig[1, 2] = GLMakiePlottingLibrary.AbstractPlotting.MakieLayout.LScene(fig, width=500, height=500, camera = GLMakiePlottingLibrary.cam3d!, raw = false, limits=GLMakiePlottingLibrary.FRect((zoomx[1],zoomy[1],zoomz[1]), (zoomx[2]-zoomx[1],zoomy[2]-zoomy[1],zoomz[2]-zoomz[1])))
+        ax1 = fig[1, 1] = GLMakiePlottingLibrary.AbstractPlotting.MakieLayout.LScene(fig, width=500, height=500, camera = GLMakiePlottingLibrary.cam3d!, raw = false, limits=GLMakiePlottingLibrary.FRect((fullx[1], fully[1], fullz[1]), (fullx[2]-fullx[1], fully[2]-fully[1], fullz[2]-fullz[1])))
+        ax2 = fig[1, 2] = GLMakiePlottingLibrary.AbstractPlotting.MakieLayout.LScene(fig, width=500, height=500, camera = GLMakiePlottingLibrary.cam3d!, raw = false, limits=GLMakiePlottingLibrary.FRect((zoomx[1], zoomy[1], zoomz[1]), (zoomx[2]-zoomx[1], zoomy[2]-zoomy[1], zoomz[2]-zoomz[1])))
         ax3 = fig[1, 3] = GLMakiePlottingLibrary.AbstractPlotting.MakieLayout.Axis(fig, width=300, height=450, title="norm(v) for last local steps")
         g1 = result.constraintvariety.implicitequations[1]
         if(length(result.constraintvariety.implicitequations)>1)
             # should be space curve
             g2 = result.constraintvariety.implicitequations[2]
-            plot_implicit_curve!(ax1,g1,g2; xlims=(fullx[1],fullx[2]), ylims=(fully[1],fully[2]), zlims=(fullz[1],fullz[2]))
-            plot_implicit_curve!(ax2,g1,g2; xlims=(zoomx[1],zoomx[2]), ylims=(zoomy[1],zoomy[2]), zlims=(zoomz[1],zoomz[2]))
+            plot_implicit_curve!(ax1,g1,g2; xlims=(fullx[1],fullx[2]), ylims=(fully[1],fully[2]), zlims=(fullz[1],fullz[2]), kwargs...)
+            plot_implicit_curve!(ax2,g1,g2; xlims=(zoomx[1],zoomx[2]), ylims=(zoomy[1],zoomy[2]), zlims=(zoomz[1],zoomz[2]), kwargs...)
         else
-            plot_implicit_surface!(ax1,g1; xlims=(fullx[1],fullx[2]), ylims=(fully[1],fully[2]), zlims=(fullz[1],fullz[2]))
-            plot_implicit_surface!(ax2,g1; xlims=(zoomx[1],zoomx[2]), ylims=(zoomy[1],zoomy[2]), zlims=(zoomz[1],zoomz[2]))
+            plot_implicit_surface!(ax1,g1; xlims=(fullx[1],fullx[2]), ylims=(fully[1],fully[2]), zlims=(fullz[1],fullz[2]), kwargs...)
+            plot_implicit_surface!(ax2,g1; xlims=(zoomx[1],zoomx[2]), ylims=(zoomy[1],zoomy[2]), zlims=(zoomz[1],zoomz[2]), kwargs...)
         end
 
-        for q in globalqs
+        for q in ps
             GLMakiePlottingLibrary.scatter!(ax1, GLMakiePlottingLibrary.Point3f0(q);
                 legend=false, color=:black, markersize=15)
             GLMakiePlottingLibrary.scatter!(ax2, GLMakiePlottingLibrary.Point3f0(q);
