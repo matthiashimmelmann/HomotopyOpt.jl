@@ -495,11 +495,11 @@ version = "6.9.10-12+3"
 
 [[Implicit3DPlotting]]
 deps = ["GLMakie", "Meshing", "Polyhedra", "WGLMakie"]
-git-tree-sha1 = "c7aaf7209645c295055c19738afd32af7dccf2c8"
+git-tree-sha1 = "23825bf55b6b0dd1da112fc81ad8415f94995e71"
 repo-rev = "main"
 repo-url = "https://github.com/matthiashimmelmann/Implicit3DPlotting.jl"
 uuid = "d997a800-832a-4a4c-b340-7dddf3c1ad50"
-version = "0.1.8"
+version = "0.1.10"
 
 [[ImplicitPlots]]
 deps = ["Contour", "MultivariatePolynomials", "RecipesBase", "Requires", "StaticArrays", "StaticPolynomials"]
