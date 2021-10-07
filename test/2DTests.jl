@@ -1,6 +1,6 @@
 using HomotopyContinuation
 
-@testset "circle Test" begin
+@testset "sextic Test" begin
     @var x y
     V = HomotopyOpt.ConstraintVariety([x,y], [(x^4 + y^4 - 1) * (x^2 + y^2 - 2) + x^5 * y], 2, 1, 100);
     p0 = V.samples[1]
