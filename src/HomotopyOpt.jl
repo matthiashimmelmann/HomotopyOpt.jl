@@ -276,7 +276,6 @@ function EDStep(ConVar, p, stepsize, v)
 	res = HomotopyContinuation.solution(tracker)
 	if all(point->Base.abs(point.im)<1e-4, res)
 		# TODO set start parameter to be q? Maybe also at a different point?
-		println(p, ", ", q, ", ",[point.re for point in res[1:length(p)]])
 		return [point.re for point in res[1:length(p)]], true
 	else
 		return p, false
@@ -525,7 +524,7 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
 		end
 		deleteat!(α, 1)
 		if α[end] > maxstepsize
-			return q, Nq, Tq, vq, success, stepsize
+			return q, Nq, Tq, vq, success, maxstepsize
 		end
     end
 end
