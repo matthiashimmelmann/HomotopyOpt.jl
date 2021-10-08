@@ -54,6 +54,8 @@ mutable struct ConstraintVariety
     implicitequations
 	EDTracker
 
+	#TODO one CV method that contains every other
+	#TODO randomize EDTracker system for non-ci!
 	# Given implicit equations, sample points from the corresponding variety and return the struct
     function ConstraintVariety(eqnz::Function, N::Int, d::Int, numsamples::Int)
         HomotopyContinuation.@var varz[1:N]
@@ -77,8 +79,8 @@ mutable struct ConstraintVariety
         end
 
 		HomotopyContinuation.@var u[1:N]
-		HomotopyContinuation.@var λ[1:length(eqnz)]
-		Lagrange = Base.sum((varz-u).^2) + sum(λ.*eqnz)
+		HomotopyContinuation.@var λ[1:length(algeqnz)]
+		Lagrange = Base.sum((varz-u).^2) + sum(λ.*algeqnz)
 		∇Lagrange = HomotopyContinuation.differentiate(Lagrange, vcat(varz,λ))
 		EDSystem = HomotopyContinuation.System(∇Lagrange, variables=vcat(varz,λ), parameters=u)
 		p0 = HomotopyContinuation.randn(Float64, N)
@@ -127,8 +129,8 @@ mutable struct ConstraintVariety
         dg = HomotopyContinuation.differentiate(algeqnz, varz)
 
 		HomotopyContinuation.@var u[1:N]
-		HomotopyContinuation.@var λ[1:length(eqnz)]
-		Lagrange = Base.sum((varz-u).^2) + sum(λ.*eqnz)
+		HomotopyContinuation.@var λ[1:length(algeqnz)]
+		Lagrange = Base.sum((varz-u).^2) + sum(λ.*algeqnz)
 		∇Lagrange = HomotopyContinuation.differentiate(Lagrange, vcat(varz,λ))
 		EDSystem = HomotopyContinuation.System(∇Lagrange, variables=vcat(varz,λ), parameters=u)
 		p0 = HomotopyContinuation.randn(Float64, N)
