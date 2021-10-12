@@ -13,7 +13,8 @@ export ConstraintVariety,
        findminima,
        watch,
        draw,
-	   addSamples!
+	   addSamples!,
+	   setEquationsAtp!
 
 # this code modifies `ConstrainedOptimizationByParameterHomotopy.jl`
 # so that instead of an ObjectiveFunction, you specify a function called `evaluateobjectivefunctiongradient`
@@ -60,8 +61,11 @@ mutable struct ConstraintVariety
         dg = HomotopyContinuation.differentiate(eqnz, varz)
 		impliciteq = [p->eqn(varz=>p) for eqn in eqnz]
         randL = HomotopyContinuation.rand_subspace(N; codim=d)
-        randResult = HomotopyContinuation.solve(eqnz; target_subspace = randL, variables=varz, show_progress = true)
+		randresult=nothing
         Ωs = []
+		if numsamples > 0
+			randResult = HomotopyContinuation.solve(eqnz; target_subspace = randL, variables=varz, show_progress = true)
+		end
         for _ in 1:numsamples
             newΩs = HomotopyContinuation.solve(
                     eqnz,
@@ -122,7 +126,7 @@ end
 Add Samples to an already existing ConstraintVariety
 =#
 function setEquationsAtp!(G::ConstraintVariety, p)
-	jacobianRank = LinearAlgebra.rank(HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.fullequations, G.variables), G.variables=>p); atol=1e-9)
+	jacobianRank = LinearAlgebra.rank(HomotopyContinuation.evaluate(G.jacobian, G.variables=>p); atol=1e-10)
 	eqnz = G.fullequations
 	if length(eqnz) + (G.ambientdimension-jacobianRank) > G.ambientdimension
 		eqnz = randn(Float64, jacobianRank, length(eqnz))*eqnz
@@ -178,23 +182,19 @@ function computesystem(p, G::ConstraintVariety,
 end
 
 #=
- We predict in the projected gradient direction and correct by using the Gauss-Newton method
-=#
-function gaussnewtonstep(ConstraintVariety, p, stepsize, v; tol=1e-8)
-	q = p+stepsize*v
-	jac = Base.hcat([HomotopyContinuation.differentiate(eq,ConstraintVariety.variables) for eq in ConstraintVariety.equations]...)
-	while(LinearAlgebra.norm([eq(ConstraintVariety.variables=>q) for eq in ConstraintVariety.equations]) > tol)
-		J = jac(ConstraintVariety.variables=>q)
-		q .= q .- LinearAlgebra.pinv(J*LinearAlgebra.transpose(J))*J*[eq(ConstraintVariety.variables=>q) for eq in ConstraintVariety.equations]
-	end
-	return q, true
-end
-
-#=
 If we are at a point of slow progression / singularity we blow the point up to a sphere and check the intersections (witness sets) with nearby components
 for the sample with lowest energy
 =#
 function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, whichstep)
+	if length(p)>60
+		q = gaussnewtonstep(G, p, 1e-4, -evaluateobjectivefunctiongradient(p))[1]
+		if Q(q) < Q(p)
+			return q, false
+		else
+			return p, true
+		end
+	end
+
 	eqn = G.fullequations
 	var = G.variables
 	d = G.dimensionofvariety
@@ -207,7 +207,7 @@ function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobject
 	catch e
 		println("dimension -1: ", e)
 	end
-	for j in 1:d
+	for j in 1:d-1
 		try
 			for _ in 1:3
 				a = rand(Float64, length(var), j)
@@ -244,6 +244,19 @@ function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobject
 	else
 		return(q,false)
 	end
+end
+
+#=
+ We predict in the projected gradient direction and correct by using the Gauss-Newton method
+=#
+function gaussnewtonstep(G::ConstraintVariety, p, stepsize, v; tol=1e-8)
+	q = p+stepsize*v
+	jac = Base.hcat([HomotopyContinuation.differentiate(eq, G.variables) for eq in G.fullequations]...)
+	while(LinearAlgebra.norm([eq(G.variables=>q) for eq in G.fullequations]) > tol)
+		J = jac(G.variables=>q)
+		q .= q .- LinearAlgebra.pinv(J*LinearAlgebra.transpose(J))*J*[eq(G.variables=>q) for eq in G.fullequations]
+	end
+	return q, true
 end
 
 #=
@@ -691,11 +704,12 @@ function findminima(p0, tolerance,
 					optRes = findminima(p, tolerance, G, objectiveFunction; maxseconds = maxseconds - (Base.time() - initialtime), maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
 					return OptimizationResult(vcat(ps, optRes.computedpoints),p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisminimum)
 				end
+				return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 			else
 				_, Tq, v = getNandTandv(ps[end], G, evaluateobjectivefunctiongradient)
 				optimality = isMinimum(G, objectiveFunction, Tq, v, ps[end]; criticaltol=tolerance)
+				return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 			end
-			return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
         else
 			jacobian = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.equations, G.variables), G.variables=>lastLSR.newsuggestedstartpoint)
 			jR = LinearAlgebra.rank(jacobian; atol=1e-9)
