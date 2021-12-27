@@ -60,10 +60,11 @@ mutable struct ConstraintVariety
 	function ConstraintVariety(varz, eqnz, N::Int, d::Int, numsamples::Int)
         dg = HomotopyContinuation.differentiate(eqnz, varz)
 		impliciteq = [p->eqn(varz=>p) for eqn in eqnz]
-        randL = HomotopyContinuation.rand_subspace(N; codim=d)
+        randL = nothing
 		randresult=nothing
         Ωs = []
 		if numsamples > 0
+			randL = HomotopyContinuation.rand_subspace(N; codim=d)
 			randResult = HomotopyContinuation.solve(eqnz; target_subspace = randL, variables=varz, show_progress = true)
 		end
         for _ in 1:numsamples
@@ -184,7 +185,7 @@ end
 If we are at a point of slow progression / singularity we blow the point up to a sphere and check the intersections (witness sets) with nearby components
 for the sample with lowest energy
 =#
-function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, whichstep; initialtime, maxseconds)
+function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, whichstep; initialtime = Base.time(), maxseconds = 50)
 	if length(p)>10
 		q = gaussnewtonstep(G, p, 1e-2, -evaluateobjectivefunctiongradient(p); initialtime=initialtime, maxseconds=maxseconds)[1]
 		if Q(q) < Q(p)
@@ -230,13 +231,7 @@ function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobject
 		end
 	end
 	Basenormal, _, basegradient = getNandTandv(q, G, evaluateobjectivefunctiongradient)
-	if whichstep=="EDStep"
-		q0 = q+1e-4*Basenormal[:,1]
-		HomotopyContinuation.start_parameters!(G.EDTracker.tracker, q0)
-		A = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(p)+1:end]), G.variables => p)
-		λ0 = A\(-HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(p)+1:end] => [0 for _ in length(p)+1:length(G.EDTracker.tracker.homotopy.F.interpreted.system.variables)]), G.variables => p),  G.EDTracker.tracker.homotopy.F.interpreted.system.parameters=>q0))
-		setStartSolution(G.EDTracker, vcat(q,λ0))
-	end
+
 	if q==p && !isempty(samples)
 		#In this case, the singularity is optimal in a sense
 		return(p,true)
@@ -328,7 +323,7 @@ end
 #=
  Checks, whether p is a local minimum of the objective function Q w.r.t. the tangent space Tp
 =#
-function isMinimum(G::ConstraintVariety, Q::Function, Tp, v, p::Vector; tol=1e-4, criticaltol=1e-3)
+function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, Tp, v, p::Vector; tol=1e-4, criticaltol=1e-3)
 	H = ForwardDiff.hessian(Q, p)
 	HConstraints = [HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(HomotopyContinuation.differentiate(eq, G.variables), G.variables), G.variables=>p) for eq in G.fullequations]
 	Qalg = Q(p)+(G.variables-p)'*ForwardDiff.gradient(Q,p)+0.5*(G.variables-p)'*H*(G.variables-p) # Taylor Approximation of x, since only the Hessian is of interest anyway
@@ -338,6 +333,11 @@ function isMinimum(G::ConstraintVariety, Q::Function, Tp, v, p::Vector; tol=1e-4
 	gL = Matrix{Float64}(HomotopyContinuation.differentiate(HomotopyContinuation.evaluate(∇L,G.variables=>p), λ))
 	bL = -HomotopyContinuation.evaluate(HomotopyContinuation.evaluate(∇L,G.variables=>p), λ=>[0 for _ in 1:length(λ)])
 	λ0 = gL\bL
+	for i in 1:length(λ0)
+		if λ0[i]==NaN || λ0[i]==Inf
+			λ0[i]=1
+		end
+	end
 	Htotal = H+λ0'*HConstraints
 	projH = Tp'*Htotal*Tp
 	projEigvals = real(LinearAlgebra.eigvals(projH)) #projH symmetric => all real eigenvalues
@@ -351,17 +351,8 @@ function isMinimum(G::ConstraintVariety, Q::Function, Tp, v, p::Vector; tol=1e-4
 		return false
 		#TODO Third derivative at x_0 at proj hessian sing. vectors not 0?!
 	else
-		HomotopyContinuation.@var t λ[1:length(G.fullequations)+1]
-		∇Qp = LinearAlgebra.normalize(ForwardDiff.gradient(Q, p))
-		EDpoints = vcat([EDStep(G, p, precision, -projEigvecs[:,i])[1] for i in 1:size(projEigvecs)[2]], [EDStep(G, p, precision, projEigvecs[:,i])[1] for i in 1:size(projEigvecs)[2]])
-		display(map(pED -> Q(pED), EDpoints))
-		if(any(pED -> Q(pED)<Q(p), EDpoints))
-			# If we take one small step in the direction of the singilar vectors and the energy decreases, we are at a saddle point
-			return false
-		else
-			#Apparently function does not decrease in any direction => Secondary Check? Witness Set approach?
-			return true
-		end
+		q, optimality = resolveSingularity(p, G, Q, evaluateobjectivefunctiongradient, "gaussnewtonstep")
+		return optimality
 
 		#=
 		A = ∇Qp'*G.variables - ∇Qp'*p + ∇Qp'*∇Qp*t
@@ -515,7 +506,7 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
 			return helper[1], Nq, Tq, vq, helper[2], helper[end]
 		end
 		if (success)
-			push!(α, 2*(α[end]))
+			push!(α, (α[end]))
 			p = q
 		else
 			Np, Tp, vp = getNandTandv(p, G, evaluateobjectivefunctiongradient)
@@ -685,8 +676,9 @@ end
 function findminima(p0, tolerance,
                 G::ConstraintVariety,
                 objectiveFunction::Function;
-                maxseconds=100, maxlocalsteps=1, initialstepsize=1.0, whichstep="twostep", initialtime = Base.time())
+                maxseconds=100, maxlocalsteps=3, initialstepsize=1.0, whichstep="twostep", initialtime = Base.time())
 	#TODO Rework minimality: We are not necessarily at a minimality, if resolveSingularity does not find any better point. => first setequations, then ismin
+	setEquationsAtp!(G,p0)
     p = copy(p0) # initialize before updating `p` below
     ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
 	jacobianG = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.equations, G.variables), G.variables=>p0)
@@ -700,31 +692,37 @@ function findminima(p0, tolerance,
         # update LSR, only store the *last local run*
         lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, initialtime, maxseconds, whichstep)
 		push!(ps, lastLSR.allcomputedpoints[end])
+		println(lastLSR.allcomputedprojectedgradientvectornorms[end])
         if lastLSR.converged
 			jacobian = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.equations, G.variables), G.variables=>lastLSR.newsuggestedstartpoint)
 			jR = LinearAlgebra.rank(jacobian; atol=tolerance)
 			# if we are in a singularity do a few steps again - if we revert back to the singularity, it is optiomal
 			if jR != jacRank || LinearAlgebra.norm(ps[end-1]-ps[end]) < tolerance^2
-				setEquationsAtp!(G, p; tol=tolerance)
 				p, optimality = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
+				setEquationsAtp!(G, p; tol=tolerance)
 				if !optimality
 					maxseconds = maxseconds+5
-					optRes = findminima(p, tolerance, G, objectiveFunction; maxseconds = maxseconds - (Base.time() - initialtime), maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
+					optRes = findminima(p, tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
 					return OptimizationResult(vcat(ps, optRes.computedpoints),p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisminimum)
 				end
 				return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 			else
 				_, Tq, v = getNandTandv(ps[end], G, evaluateobjectivefunctiongradient)
-				optimality = isMinimum(G, objectiveFunction, Tq, v, ps[end]; criticaltol=tolerance)
+				setEquationsAtp!(G, p; tol=tolerance)
+				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v, ps[end]; criticaltol=tolerance)
+				if !optimality
+					optRes = findminima(ps[end], tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
+					return OptimizationResult(vcat(ps, optRes.computedpoints),p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisminimum)
+				end
 				return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 			end
         else
 			jacobian = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.equations, G.variables), G.variables=>lastLSR.newsuggestedstartpoint)
 			jR = LinearAlgebra.rank(jacobian; atol=tolerance)
 			# If we are in a point of slow progress or jacobian rank change, we search the neighborhood
-			if jR != jacRank || LinearAlgebra.norm(ps[end-1]-lastLSR.newsuggestedstartpoint) < tolerance^3
-				setEquationsAtp!(G, p; tol=tolerance)
+			if jR != jacRank || LinearAlgebra.norm(ps[end-1]-ps[end]) < tolerance^3
 				p, optimality = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
+				setEquationsAtp!(G, p; tol=tolerance)
 				if optimality
 					return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 				end
@@ -740,6 +738,7 @@ function findminima(p0, tolerance,
 
 	display("We ran out of time... Try setting `maxseconds` to a larger value than $(maxseconds)")
 	p, optimality = resolveSingularity(ps[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
+	setEquationsAtp!(G, p; tol=tolerance)
 	_, Tq, v = getNandTandv(ps[end], G, evaluateobjectivefunctiongradient)
     return OptimizationResult(ps,p0,ε0,tolerance,lastLSR.converged,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 end
