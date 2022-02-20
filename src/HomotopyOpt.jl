@@ -81,6 +81,7 @@ mutable struct ConstraintVariety
             realsols = HomotopyContinuation.real_solutions(newΩs)
             push!(Ωs, realsols...)
         end
+		Ωs = filter(t->LinearAlgebra.norm(t)<1e5,Ωs)
 		fulleqnz = eqnz
 		if length(eqnz) + d > N
 			eqnz = randn(Float64, N-d, length(eqnz))*eqnz
@@ -113,6 +114,20 @@ mutable struct ConstraintVariety
     function ConstraintVariety(varz,eqnz,N::Int,d::Int)
 		ConstraintVariety(varz, eqnz, N::Int, d::Int, 0)
     end
+
+	#Let the dimension be determined by the algorithm and calculate samples
+	function ConstraintVariety(varz,eqnz,p::Vector{Float64},numSamples::Int)
+		G = ConstraintVariety(varz, eqnz, length(varz), 0,numSamples)
+		setEquationsAtp!(G,p)
+		return(G)
+	end
+
+	#Only let the dimension be determined by the algorithm
+	function ConstraintVariety(varz,eqnz,p::Vector{Float64})
+		G = ConstraintVariety(varz, eqnz, length(varz), 0)
+		setEquationsAtp!(G,p)
+		return(G)
+	end
 end
 
 #=
@@ -125,7 +140,7 @@ end
 #=
 Add Samples to an already existing ConstraintVariety
 =#
-function setEquationsAtp!(G::ConstraintVariety, p; tol=1e-6)
+function setEquationsAtp!(G::ConstraintVariety, p; tol=1e-5)
 	jacobianRank = LinearAlgebra.rank(HomotopyContinuation.evaluate(G.jacobian, G.variables=>p); atol=tol)
 	eqnz = G.fullequations
 	if length(eqnz) + (G.ambientdimension-jacobianRank) > G.ambientdimension
@@ -187,7 +202,7 @@ for the sample with lowest energy
 =#
 function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, whichstep; initialtime = Base.time(), maxseconds = 50)
 	if length(p)>10
-		q = gaussnewtonstep(G, p, 1e-2, -evaluateobjectivefunctiongradient(p); initialtime=initialtime, maxseconds=maxseconds)[1]
+		q = gaussnewtonstep(G, p, 1e-1, -evaluateobjectivefunctiongradient(p); initialtime=initialtime, maxseconds=maxseconds)[1]
 		if Q(q) < Q(p)
 			return q, false
 		else
@@ -344,7 +359,6 @@ function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiong
 	indices = filter(i->LinearAlgebra.abs(projEigvals[i])<=tol, 1:length(projEigvals))
 	projEigvecs = real(LinearAlgebra.eigvecs(projH))[:, indices]
 	projEigvecs = Tp*projEigvecs
-	precision=5e-2
 	if all(q-> q>=tol, projEigvals) && LinearAlgebra.norm(v) <= criticaltol
 		return true
 	elseif any(q-> q<=-tol, projEigvals) || LinearAlgebra.norm(v) > criticaltol
@@ -423,7 +437,7 @@ function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v; initialtime
 end
 
 # WARNING This one is worse than backtracking_linesearch
-function alternative_backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; maxstepsize=100.0, τ=0.4, r=1e-4, s=0.9, whichstep="twostep")
+function alternative_backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; maxstepsize=100.0, r=1e-4, τ=0.7, whichstep="EDStep", initialtime, maxseconds)
     α=Base.copy(stepsize)
     p=Base.copy(p0)
 
@@ -436,31 +450,12 @@ function alternative_backtracking_linesearch(Q::Function, F::HomotopyContinuatio
 		setStartSolution(G.EDTracker, vcat(p,λ0))
 	end
     while(true)
-		q, success = stepchoice(F, G, whichstep, α, p0, basegradient)
+		q, success = stepchoice(F, G, whichstep, α, p0, basegradient; initialtime, maxseconds)
         success ? p=q : nothing
         Nq, Tq, vq = getNandTandv(p, G, evaluateobjectivefunctiongradient)
         # Proceed until the Wolfe condition is satisfied or the stepsize becomes too small. First we quickly find a lower bound, then we gradually increase this lower-bound
 		if (Q(p0)-Q(p) >= r*α*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)) && vq'*basegradient >= 0 && success)
-
-			for indicator in 1:12
-                αsub = α*1.1
-				q, success = stepchoice(F, G, whichstep, αsub, p0, basegradient)
-                if(!success)
-                    return(p, Nq, Tq, vq, false, α)
-                end
-                Nqsub, Tqsub, vqsub = getNandTandv(q, G, evaluateobjectivefunctiongradient)
-                if Q(p0)-Q(q) < r*αsub*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)) || vqsub'*basegradient < 0
-                    return(p, Nq, Tq, vq, true, α)
-                elseif Base.abs(basegradient'*evaluateobjectivefunctiongradient(q)) <= Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0))*s
-                    return(q, Nqsub, Tqsub, vqsub, true, αsub)
-				elseif αsub>maxstepsize
-					return(p, Nq, Tq, vq, false, α*τ)
-                else
-                    p=q; α=αsub; vq=vqsub; Tq=Tqsub; Nq=Nqsub;
-                end
-            end
-			return(p, Nq, Tq, vq, true, α)
-
+			return q, Nq, Tq, vq, success, α
 		elseif α<1e-6
 	    	return(q, Nq, Tq, vq, false, stepsize)
         else
@@ -473,7 +468,7 @@ end
 Use line search with the strong Wolfe condition to find the optimal step length.
 This particular method can be found in Nocedal & Wright: Numerical Optimization
 =#
-function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; maxstepsize=100.0, r=1e-3, s=0.9, whichstep="EDStep", initialtime, maxseconds)
+function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; maxstepsize=100.0, r=1e-4, s=0.9, whichstep="EDStep", initialtime, maxseconds)
 	Basenormal, Basetangent, basegradient = getNandTandv(p0, G, evaluateobjectivefunctiongradient)
 	α0 = 0
 	α = [0, stepsize]
@@ -676,15 +671,22 @@ end
 function findminima(p0, tolerance,
                 G::ConstraintVariety,
                 objectiveFunction::Function;
-                maxseconds=100, maxlocalsteps=3, initialstepsize=1.0, whichstep="twostep", initialtime = Base.time())
+                maxseconds=100, maxlocalsteps=10, initialstepsize=1.0, whichstep="twostep", initialtime = Base.time(), stepdirection = "descentdirection")
 	#TODO Rework minimality: We are not necessarily at a minimality, if resolveSingularity does not find any better point. => first setequations, then ismin
 	setEquationsAtp!(G,p0)
     p = copy(p0) # initialize before updating `p` below
     ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
-	jacobianG = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.equations, G.variables), G.variables=>p0)
+	jacobianG = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.fullequations, G.variables), G.variables=>p0)
 	jacRank = LinearAlgebra.rank(jacobianG; atol=tolerance)
-    evaluateobjectivefunctiongradient = x -> ForwardDiff.gradient(objectiveFunction, x)
-    _, Tq, v = getNandTandv(p0, G, evaluateobjectivefunctiongradient) # Get the projected gradient at the first point
+	evaluateobjectivefunctiongradient = x -> ForwardDiff.gradient(objectiveFunction, x)
+	if jacRank==0
+		p, optimality = resolveSingularity(ps[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
+		setEquationsAtp!(G, p; tol=tolerance)
+		jacobianG = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.fullequations, G.variables), G.variables=>p0)
+		jacRank = LinearAlgebra.rank(jacobianG; atol=tolerance)
+	end
+    _, Tq, v = getNandTandv(p, G, evaluateobjectivefunctiongradient) # Get the projected gradient at the first point
+
 	# initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
 	ε0 = 2*initialstepsize
     lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,false,0,0)
@@ -692,23 +694,28 @@ function findminima(p0, tolerance,
         # update LSR, only store the *last local run*
         lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, initialtime, maxseconds, whichstep)
 		push!(ps, lastLSR.allcomputedpoints[end])
-		println(lastLSR.allcomputedprojectedgradientvectornorms[end])
+		jacobian = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.fullequations, G.variables), G.variables=>lastLSR.newsuggestedstartpoint)
+		jR = LinearAlgebra.rank(jacobian; atol=tolerance^2)
         if lastLSR.converged
-			jacobian = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.equations, G.variables), G.variables=>lastLSR.newsuggestedstartpoint)
-			jR = LinearAlgebra.rank(jacobian; atol=tolerance)
 			# if we are in a singularity do a few steps again - if we revert back to the singularity, it is optiomal
-			if jR != jacRank || LinearAlgebra.norm(ps[end-1]-ps[end]) < tolerance^2
-				p, optimality = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
-				setEquationsAtp!(G, p; tol=tolerance)
-				if !optimality
-					maxseconds = maxseconds+5
+			if jR != jacRank || LinearAlgebra.norm(ps[end-1]-ps[end]) < tolerance^3
+				setEquationsAtp!(G, ps[end]; tol=tolerance^2)
+				_, Tq, v = getNandTandv(ps[end], G, evaluateobjectivefunctiongradient)
+				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v, ps[end]; criticaltol=tolerance)
+				if optimality
+					return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+				end
+				p, foundsomething = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
+				setEquationsAtp!(G, p; tol=tolerance^2)
+				if !foundsomething
+					maxseconds = maxseconds+10
 					optRes = findminima(p, tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
 					return OptimizationResult(vcat(ps, optRes.computedpoints),p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisminimum)
 				end
 				return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 			else
+				setEquationsAtp!(G, ps[end]; tol=tolerance^2)
 				_, Tq, v = getNandTandv(ps[end], G, evaluateobjectivefunctiongradient)
-				setEquationsAtp!(G, p; tol=tolerance)
 				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v, ps[end]; criticaltol=tolerance)
 				if !optimality
 					optRes = findminima(ps[end], tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
@@ -717,30 +724,33 @@ function findminima(p0, tolerance,
 				return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 			end
         else
-			jacobian = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.equations, G.variables), G.variables=>lastLSR.newsuggestedstartpoint)
-			jR = LinearAlgebra.rank(jacobian; atol=tolerance)
 			# If we are in a point of slow progress or jacobian rank change, we search the neighborhood
 			if jR != jacRank || LinearAlgebra.norm(ps[end-1]-ps[end]) < tolerance^3
-				p, optimality = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
-				setEquationsAtp!(G, p; tol=tolerance)
+				setEquationsAtp!(G, ps[end]; tol=tolerance^2)
+				_, Tq, v = getNandTandv(ps[end], G, evaluateobjectivefunctiongradient)
+				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v, ps[end]; criticaltol=tolerance)
 				if optimality
 					return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 				end
-				jacobian = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.equations, G.variables), G.variables=>p)
-				jR = LinearAlgebra.rank(jacobian; atol=tolerance)
+				p, foundsomething = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
+				setEquationsAtp!(G, p; tol=tolerance^2)
+				if !foundsomething
+					maxseconds = maxseconds+25
+					optRes = findminima(p, tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
+					return OptimizationResult(vcat(ps, optRes.computedpoints),p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisminimum)
+				end
 			else
 				p = lastLSR.newsuggestedstartpoint
 			end
-			jacRank = jR
+			jacobian = HomotopyContinuation.evaluate(HomotopyContinuation.differentiate(G.equations, G.variables), G.variables=>p)
+			jacRank = LinearAlgebra.rank(jacobian; atol=tolerance^2)
             ε0 = lastLSR.newsuggestedstepsize # update and try again!
         end
     end
 
 	display("We ran out of time... Try setting `maxseconds` to a larger value than $(maxseconds)")
 	p, optimality = resolveSingularity(ps[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
-	setEquationsAtp!(G, p; tol=tolerance)
-	_, Tq, v = getNandTandv(ps[end], G, evaluateobjectivefunctiongradient)
-    return OptimizationResult(ps,p0,ε0,tolerance,lastLSR.converged,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+	return OptimizationResult(ps,p0,ε0,tolerance,lastLSR.converged,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 end
 
 # Below are functions `watch` and `draw`
