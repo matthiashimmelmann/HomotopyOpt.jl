@@ -256,16 +256,17 @@ end
 #=
  We predict in the projected gradient direction and correct by using the Gauss-Newton method
 =#
-function gaussnewtonstep(G::ConstraintVariety, p, stepsize, v; tol=1e-8, initialtime, maxseconds)
-	q = p+stepsize*v
+function gaussnewtonstep(G::ConstraintVariety, p, stepsize, v; tol=1e-8, initialtime, maxseconds, damping = 0.5)
+	global q = p+stepsize*v
 	jac = Base.hcat([HomotopyContinuation.differentiate(eq, G.variables) for eq in G.fullequations]...)
 	while(LinearAlgebra.norm([eq(G.variables=>q) for eq in G.fullequations]) > tol)
 		J = jac(G.variables=>q)
 		try
-			q .= q .- LinearAlgebra.pinv(J)'*[eq(G.variables=>q) for eq in G.fullequations]
+			global q .= q .- 2*damping*LinearAlgebra.pinv(J)'*[eq(G.variables=>q) for eq in G.fullequations]
 		catch e
-			q .= q .- 0.5*J'\[eq(G.variables=>q) for eq in G.fullequations]
+			global q .= q .- damping*J'\[eq(G.variables=>q) for eq in G.fullequations]
 		end
+
 		if time()-initialtime > maxseconds
 			return p, false
 		end
@@ -495,6 +496,7 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
 		setStartSolution(G.EDTracker, vcat(p, λ0))
 	end
     while true
+		println("α: ", α[end])
 		q, success = stepchoice(F, G, whichstep, α[end], p0, basegradient; initialtime, maxseconds)
 		if time()-initialtime > maxseconds
 			Nq, Tq, vq = getNandTandv(q, G, evaluateobjectivefunctiongradient)
@@ -515,7 +517,7 @@ function backtracking_linesearch(Q::Function, F::HomotopyContinuation.ModelKit.S
 			return helper[1], Nq, Tq, vq, helper[2], helper[end]
 		end
 		if (success)
-			push!(α, (α[end]))
+			push!(α, 2*α[end])
 			p = q
 		else
 			Np, Tp, vp = getNandTandv(p, G, evaluateobjectivefunctiongradient)
