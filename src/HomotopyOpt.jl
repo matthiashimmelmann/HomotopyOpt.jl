@@ -308,8 +308,8 @@ function EDStep(ConstraintVariety, p, stepsize, v; homotopyMethod, tol=1e-8)
 		equations = HomotopyContinuation.evaluate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
 		jac = Base.hcat([HomotopyContinuation.differentiate(eq, variables) for eq in equations]...)
 		while(LinearAlgebra.norm(HomotopyContinuation.evaluate.(equations, variables=>currentSolution)) > tol)
-			J = Matrix{Float64}(HomotopyContinuation.evaluate.(jac, variables=>currentSolution))
-			currentSolution =  currentSolution .- 0.9*LinearAlgebra.pinv(J)'*HomotopyContinuation.evaluate.(equations, variables=>currentSolution)
+			J = HomotopyContinuation.evaluate.(jac, variables=>currentSolution)
+			currentSolution =  currentSolution .- J\HomotopyContinuation.evaluate.(equations, variables=>currentSolution)
 		end
 		return currentSolution[1:length(q)], true
 	else
