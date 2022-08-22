@@ -1,11 +1,10 @@
 name = "HomotopyOpt"
 uuid = "8c5e0f79-7402-43d4-9c5c-e1bde87b1895"
-authors = ["Alex Heaton <alexheaton2@gmail.com>"]
+authors = ["Alex Heaton <alexheaton2@gmail.com>", "Matthias Himmelmann <matthias.himmelmann@outlook.de"]
 version = "0.1.0"
 
 [deps]
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
-GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 HomotopyContinuation = "f213a82b-91d6-5c5d-acf7-10f1c761b327"
 Implicit3DPlotting = "d997a800-832a-4a4c-b340-7dddf3c1ad50"
 ImplicitPlots = "55ecb840-b828-11e9-1645-43f4a9f9ace7"
@@ -16,7 +15,7 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 [compat]
 ForwardDiff = "0.10.0"
 HomotopyContinuation = "2.5.0"
-Implicit3DPlotting = "0.1.0"
-ImplicitPlots = "0.2.0"
+Implicit3DPlotting = "0.2"
+ImplicitPlots = "0.2"
 Plots = "1.12.0"
-julia = "1.4"
+julia = "1.6"
