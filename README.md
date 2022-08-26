@@ -13,7 +13,7 @@ The end result is that we slow down in the correct places to find critical point
 ```julia
 using HomotopyOpt
 
-sexticcurve(x) = (x[1]^4 + x[2]^4 - 1) * (x[1]^2 + x[2]^2 - 2) + x[1]^5 * x[2] # sextic curve
+sexticcurve(x) = [(x[1]^4 + x[2]^4 - 1) * (x[1]^2 + x[2]^2 - 2) + x[1]^5 * x[2]] # sextic curve
 N,d = 2,1 # ambient dimension, variety dimension
 numsamples = 100 # we want to compute some random starting points for our optimization problem
 
