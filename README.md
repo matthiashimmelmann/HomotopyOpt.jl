@@ -40,4 +40,4 @@ watch(result)
 ```
 which produces the following output:
 
-![](https://github.com/alexheaton2/ConstrainedOptimizationByParameterHomotopy.jl/blob/firstbranch/watch2021-04-20T11:29:41.721.gif)
+![](https://github.com/matthiashimmelmann/HomotopyOpt.jl/blob/firstbranch/test/watch1.661497754964e9.gif)
