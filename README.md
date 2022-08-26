@@ -23,20 +23,17 @@ G = ConstraintVariety(g, N, d, numsamples); # if you dont ask for samples, it wi
 
 Above we created a `ConstraintVariety`, and now we need to create a function that evaluates the gradient of the objective function.
 For the objective function, we choose the squared distance from the point $(2,2)$ in the plane, for visualization purposes in this example.
-Therefore the gradient can be computed by hand, and we hard-wire this gradient evaluation in a function below.
 ```julia
-# let the objective function be squared distance from the point (2,2) in the plane
-# minimizing this obj fcn will compute the closest point, or at least a locally closest point
-evalgradobjfcn(p) = [2*(p[1] - 2), 2*(p[2] - 2)] # evaluates the gradient of the objective function
+Q = x->(x[1]-2)^2+(x[2]-2)^2
 ```
 
-The main function is `findminima` which actually implements our algorithm. It takes some inputs as follows:
+The main function is `findminima` which actually implements our algorithm. It takes inputs as follows:
 ```julia
 p0 = rand(G.samples) # choose a random starting point on the curve
 initialstepsize = 0.01
 tolerance = 1e-3
 
-result = findminima(p0,initialstepsize,tolerance, G, evalgradobjfcn);
+result = findminima(p0, tolerance, G, Q);
 ```
 
 Now we can `watch` our result.
