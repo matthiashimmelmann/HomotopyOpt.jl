@@ -11,7 +11,7 @@ If this happens, we go back a bit, and slow down our search, looking more carefu
 The end result is that we slow down in the correct places to find critical points where the projected gradient vector is essentially the zero vector.
 
 ```julia
-include("maincode.jl")
+include("HomotopyOpt.jl")
 
 sexticcurve(x) = (x[1]^4 + x[2]^4 - 1) * (x[1]^2 + x[2]^2 - 2) + x[1]^5 * x[2] # sextic curve
 g = [sexticcurve] # list of defining equations for the constraint variety
@@ -30,7 +30,6 @@ Q = x->(x[1]-2)^2+(x[2]-2)^2
 The main function is `findminima` which actually implements our algorithm. It takes inputs as follows:
 ```julia
 p0 = rand(G.samples) # choose a random starting point on the curve
-initialstepsize = 0.01
 tolerance = 1e-3
 
 result = findminima(p0, tolerance, G, Q);
