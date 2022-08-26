@@ -11,7 +11,7 @@ If this happens, we go back a bit, and slow down our search, looking more carefu
 The end result is that we slow down in the correct places to find critical points where the projected gradient vector is essentially the zero vector.
 
 ```julia
-include("HomotopyOpt.jl")
+using HomotopyOpt
 
 sexticcurve(x) = (x[1]^4 + x[2]^4 - 1) * (x[1]^2 + x[2]^2 - 2) + x[1]^5 * x[2] # sextic curve
 g = [sexticcurve] # list of defining equations for the constraint variety
