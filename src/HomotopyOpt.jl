@@ -736,12 +736,13 @@ end
 
 # Below are functions `watch` and `draw`
 # to visualize low-dimensional examples
-function watch(result::OptimizationResult; totalseconds=5.0, kwargs...)
+function watch(result::OptimizationResult; totalseconds=5.0, fullx = [-1.5,1.5], fully = [-1.5,1.5], fullz = [-1.5,1.5],  kwargs...)
     ps = result.computedpoints
-    samples = result.constraintvariety.samples
-	# TODO centroid approach rather than mediannorm and then difference from centroid.
-    mediannorm = Statistics.median([LinearAlgebra.norm(p) for p in samples])
-    samples = filter(x -> LinearAlgebra.norm(x) < 2*mediannorm+0.5, samples)
+	samples = result.constraintvariety.samples
+	if !isempty(samples)
+		mediannorm = Statistics.median([LinearAlgebra.norm(p) for p in samples])
+		samples = filter(x -> LinearAlgebra.norm(x) < 2*mediannorm+0.5, samples)
+	end
     initplt = Plots.plot() # initialize
     M = length(ps)
     framespersecond = M / totalseconds
@@ -752,8 +753,10 @@ function watch(result::OptimizationResult; totalseconds=5.0, kwargs...)
     dim = length(ps[1])
     anim = Plots.Animation()
     if dim == 2
-        fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
-        fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
+		if !isempty(samples)
+			fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
+			fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
+		end
         g1 = result.constraintvariety.equations[1] # should only be a curve in ambient R^2
         initplt = implicit_plot(g1, xlims=fullx, ylims=fully, legend=false)
 		initplt = Plots.scatter!(initplt, [ps[end][1]], [ps[end][2]], legend=false, markersize=5, color=:red, xlims=fullx, ylims=fully)
@@ -767,9 +770,11 @@ function watch(result::OptimizationResult; totalseconds=5.0, kwargs...)
         end
         return Plots.gif(anim, "watch$startingtime.gif", fps=framespersecond)
     elseif dim == 3
-        fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
-        fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
-        fullz = [minimum([q[3] for q in vcat(samples, ps)]) - 0.05, maximum([q[3] for q in vcat(samples, ps)]) + 0.05]
+		if !isempty(samples)
+			fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
+			fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
+			fullz = [minimum([q[3] for q in vcat(samples, ps)]) - 0.05, maximum([q[3] for q in vcat(samples, ps)]) + 0.05]
+		end
         g1 = result.constraintvariety.implicitequations[1]
         if(length(result.constraintvariety.implicitequations)>1)
             # should be space curve
