@@ -1,6 +1,6 @@
 # HomotopyOpt.jl
 
-This collects code that solves a constrained optimization problem which minimizes an objective function restricted to an algebraic variety.
+This package solves a constrained optimization problem which minimizes an objective function restricted to an algebraic variety.
 There are two main ideas. First, we use parameter homotopy (using `HomotopyContinuation.jl`) to attempt a line search in the direction of the projected gradient vector.
 Because we use parameter homotopy, this *line search* is really a *curve search* along a curve that stays on the constraint variety.
 
