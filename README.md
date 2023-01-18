@@ -10,6 +10,14 @@ compute their dot product, and if it's negative, that means the projected gradie
 If this happens, we go back a bit, and slow down our search, looking more carefully in that neighborhood.
 The end result is that we slow down in the correct places to find critical points where the projected gradient vector is essentially the zero vector.
 
+## Installation
+
+```
+(@v1.7) pkg> add HomotopyOpt
+```
+
+## Usage
+
 ```julia
 using HomotopyOpt
 
