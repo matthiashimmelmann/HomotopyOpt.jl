@@ -13,6 +13,7 @@ The end result is that we slow down in the correct places to find critical point
 ## Installation
 
 ```
+julia> ]
 (@v1.7) pkg> add HomotopyOpt
 ```
 
