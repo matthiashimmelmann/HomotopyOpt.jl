@@ -2,11 +2,11 @@ module HomotopyOpt
 
 import HomotopyContinuation
 import LinearAlgebra
-import ImplicitPlots: implicit_plot
+#import ImplicitPlots: implicit_plot
 import Plots
 import Statistics
-import Implicit3DPlotting: plot_implicit_surface, plot_implicit_surface!, plot_implicit_curve, plot_implicit_curve!#, GLMakiePlottingLibrary
-import Implicit3DPlotting.GLMakiePlottingLibrary as GLMakiePlottingLibrary
+#import Implicit3DPlotting: plot_implicit_surface, plot_implicit_surface!, plot_implicit_curve, plot_implicit_curve!#, GLMakiePlottingLibrary
+#import Implicit3DPlotting.GLMakiePlottingLibrary as GLMakiePlottingLibrary
 import ForwardDiff
 
 export ConstraintVariety,
@@ -345,6 +345,7 @@ end
  Checks, whether p is a local minimum of the objective function Q w.r.t. the tangent space Tp
 =#
 function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, Tp, v, p::Vector; tol=1e-4, criticaltol=1e-3)
+	return(false)
 	if length(p)>20
 		q = gaussnewtonstep(G, p, 1e-2, -evaluateobjectivefunctiongradient(p); initialtime=Base.time(), maxseconds=10)[1]
 		return Q(q)<Q(p)
@@ -632,7 +633,7 @@ end
 function findminima(p0, tolerance,
                 G::ConstraintVariety,
                 objectiveFunction::Function;
-                maxseconds=100, maxlocalsteps=5, initialstepsize=1.0, whichstep="EDStep", initialtime = Base.time(), stepdirection = "gradientdescent", homotopyMethod = "HomotopyContinuation")
+                maxseconds=100, maxlocalsteps=1, initialstepsize=1.0, whichstep="EDStep", initialtime = Base.time(), stepdirection = "gradientdescent", homotopyMethod = "HomotopyContinuation")
 	#TODO Rework minimality: We are not necessarily at a minimality, if resolveSingularity does not find any better point. => first setequations, then ismin
 	#setEquationsAtp!(G,p0)
 	jacobianRank = LinearAlgebra.rank(HomotopyContinuation.evaluate.(G.jacobian, G.variables=>p0); atol=tolerance^1.5)
