@@ -1,7 +1,7 @@
 name = "HomotopyOpt"
 uuid = "8c5e0f79-7402-43d4-9c5c-e1bde87b1895"
 authors = ["Matthias Himmelmann <matthias.himmelmann@outlook.de", "Alex Heaton <alexheaton2@gmail.com>"]
-version = "0.2.0"
+version = "0.2.1"
 
 [deps]
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
