@@ -1,6 +1,6 @@
 module HomotopyOpt
 
-import HomotopyContinuation: @var, evaluate, differentiate, start_parameters!, target_parameters!, track!, solve, real_solutions, solutions, rand_subspace, randn, System, ParameterHomotopy, Expression, Tracker, Variable
+import HomotopyContinuation: @var, evaluate, differentiate, start_parameters!, target_parameters!, track!, solve, real_solutions, solutions, solution, rand_subspace, randn, System, ParameterHomotopy, Expression, Tracker, Variable, track
 import LinearAlgebra: norm, transpose, qr, rank, normalize, pinv, eigvals, abs, eigvecs, svd
 import Plots: plot, scatter!, Animation, frame
 import ForwardDiff: hessian, gradient
