@@ -188,7 +188,7 @@ If we are at a point of slow progression / singularity we blow the point up to a
 for the sample with lowest energy
 =#
 function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, whichstep; initialtime = Base.time(), maxseconds = 50)
-	if true#length(p)>1
+	if length(p)>10
 		q = gaussnewtonstep(G, p, 1e-3, -evaluateobjectivefunctiongradient(p); initialtime=initialtime, maxseconds=maxseconds)[1]
 		( Q(q) < Q(p) && return(q, true) ) || return(q, false)
 	end
