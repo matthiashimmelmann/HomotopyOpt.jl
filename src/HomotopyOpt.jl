@@ -339,8 +339,8 @@ end
 =#
 function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, Tp, v, p::Vector; tol=1e-4, criticaltol=1e-3)
 	return(false)
-	if length(p)>20
-		q = gaussnewtonstep(G, p, 1e-2, -evaluateobjectivefunctiongradient(p); initialtime=Base.time(), maxseconds=10)[1]
+	if length(p)>7
+		q = gaussnewtonstep(G, p, 1e-2, -evaluateobjectivefunctiongradient(p)[2]; initialtime=Base.time(), maxseconds=10)[1]
 		return Q(q)<Q(p)
 	end
 
@@ -367,7 +367,7 @@ function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiong
 		#TODO Third derivative at x_0 at proj hessian sing. vectors not 0?!
 	# Else take a small step in gradient descent direction and see if the energy decreases
 	else
-		q = gaussnewtonstep(G, p, 1e-2, -evaluateobjectivefunctiongradient(p); initialtime=Base.time(), maxseconds=10)[1]
+		q = gaussnewtonstep(G, p, 1e-2, -evaluateobjectivefunctiongradient(p)[2]; initialtime=Base.time(), maxseconds=10)[1]
 		return Q(q)<Q(p)
 	end
 end
