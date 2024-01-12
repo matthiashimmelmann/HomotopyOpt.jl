@@ -394,7 +394,7 @@ function alternative_backtracking_linesearch(Q::Function, F::System, G::Constrai
     α=Base.copy(stepsize)
     p=Base.copy(p0)
 
-	Basenormal, _, basegradient = get_NTv(p0, G, evaluateobjectivefunctiongradient)
+	Basenormal, _, basegradient, _ = get_NTv(p0, G, evaluateobjectivefunctiongradient)
 	if whichstep=="EDStep" || homotopyMethod=="Newton"
 		q0 = p+1e-3*Basenormal[:,1]
 		start_parameters!(G.EDTracker.tracker, q0)
@@ -405,12 +405,12 @@ function alternative_backtracking_linesearch(Q::Function, F::System, G::Constrai
     while(true)
 		q, success = stepchoice(F, G, whichstep, α, p0, basegradient; initialtime, maxseconds, homotopyMethod)
         success ? p=q : nothing
-        _, Tq, vq = get_NTv(p, G, evaluateobjectivefunctiongradient)
+        _, Tq, vq1, vq2 = get_NTv(p, G, evaluateobjectivefunctiongradient)
         # Proceed until the Wolfe condition is satisfied or the stepsize becomes too small. First we quickly find a lower bound, then we gradually increase this lower-bound
-		if (Q(p0)-Q(p) >= r*α*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)[1]) && vq'*basegradient >= 0 && success)
-			return q, Tq, vq, success, α
+		if (Q(p0)-Q(p) >= r*α*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)[1]) && vq2'*basegradient >= 0 && success)
+			return q, Tq, vq1, vq2, success, α
 		elseif α<1e-6
-	    	return(q, Tq, vq, false, stepsize)
+	    	return(q, Tq, vq1, vq2, false, stepsize)
         else
             α=τ*α
         end
@@ -422,7 +422,7 @@ Use line search with the strong Wolfe condition to find the optimal step length.
 This particular method can be found in Nocedal & Wright: Numerical Optimization
 =#
 function backtracking_linesearch(Q::Function, F::System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; whichstep="EDStep", maxstepsize=100.0, initialtime, maxseconds, homotopyMethod="HomotopyContinuation", r=1e-3, s=0.8)
-	Basenormal, _, basegradient = get_NTv(p0, G, evaluateobjectivefunctiongradient)
+	Basenormal, _, basegradient, _ = get_NTv(p0, G, evaluateobjectivefunctiongradient)
 	α = [0, stepsize]
 	p = Base.copy(p0)
 	if whichstep=="EDStep" || homotopyMethod=="Newton"
@@ -436,33 +436,33 @@ function backtracking_linesearch(Q::Function, F::System, G::ConstraintVariety, e
 		println("α: ", α[end])
 		q, success = stepchoice(F, G, whichstep, α[end], p0, basegradient; initialtime, maxseconds, homotopyMethod)
 		if time()-initialtime > maxseconds
-			_, Tq, vq = get_NTv(q, G, evaluateobjectivefunctiongradient)
-			return q, Tq, vq, success, α[end]
+			_, Tq, vq1, vq2 = get_NTv(q, G, evaluateobjectivefunctiongradient)
+			return q, Tq, vq1, vq2, success, α[end]
 		end
-        _, Tq, vq = get_NTv(q, G, evaluateobjectivefunctiongradient)
+        _, Tq, vq1, vq2 = get_NTv(q, G, evaluateobjectivefunctiongradient)
 		if ( ( Q(q) > Q(p0) + r*α[end]*basegradient'*basegradient || (Q(q) > Q(p0) && q!=p0) ) && success)
 			helper = zoom(α[end-1], α[end], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
-			_, Tq, vq = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
-			return helper[1], Tq, vq, helper[2], helper[end]
+			_, Tq, vq1, vq2 = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
+			return helper[1], Tq, vq1, vq2, helper[2], helper[end]
 		end
-		if ( abs(basegradient'*vq) <= s*abs(basegradient'*basegradient) ) && success
-			return q, Tq, vq, success, α[end]
+		if ( abs(basegradient'*vq2) <= s*abs(basegradient'*basegradient) ) && success
+			return q, Tq, vq1, vq2, success, α[end]
 		end
-		if basegradient'*vq <= 0 && success
+		if basegradient'*vq2 <= 0 && success
 			helper = zoom(α[end], α[end-1], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
-			_, Tq, vq = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
-			return helper[1], Tq, vq, helper[2], helper[end]
+			_, Tq, vq1, vq2 = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
+			return helper[1], Tq, vq1, vq2, helper[2], helper[end]
 		end
 		if (success)
 			push!(α, 2*α[end])
 			p = q
 		else
-			_, Tp, vp = get_NTv(p, G, evaluateobjectivefunctiongradient)
-			return p, Tp, vp, success, α[end]
+			_, Tp, vp1, vp2 = get_NTv(p, G, evaluateobjectivefunctiongradient)
+			return p, Tp, vp1, vp2, success, α[end]
 		end
 		deleteat!(α, 1)
 		if α[end] > maxstepsize
-			return q, Tq, vq, success, maxstepsize
+			return q, Tq, vq1, vq2, success, maxstepsize
 		end
     end
 end
@@ -474,12 +474,12 @@ function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep,
 	qlo, suclo = stepchoice(F, G, whichstep, αlo, p0, basegradient; initialtime, maxseconds, homotopyMethod)
 	# To not get stuck in the iteration, we use a for loop instead of a while loop
 	# TODO Add a more meaningful stopping criterion
-	for _ in 1:7
+	for _ in 1:8
 		global α = 0.5*(αlo+αhi)
 		println("α: ", α)
 		#println("α: ", α)
 		global q, success = stepchoice(F, G, whichstep, α, p0, basegradient; initialtime, maxseconds, homotopyMethod)
-		_, _, vq = get_NTv(q, G, evaluateobjectivefunctiongradient)
+		_, _, _, vq2 = get_NTv(q, G, evaluateobjectivefunctiongradient)
 		if !success || time()-initialtime > maxseconds
 			return q, success, α
 		end
@@ -487,10 +487,10 @@ function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep,
 		if  Q(q) > Q(p0) + r*α*basegradient'*basegradient || Q(q) >= Q(qlo)
 			αhi = α
 		else
-			if Base.abs(basegradient'*vq) <= Base.abs(basegradient'*basegradient)*s
+			if Base.abs(basegradient'*vq2) <= Base.abs(basegradient'*basegradient)*s
 				return q, success, α
 			end
-			if basegradient'*vq*(αhi-αlo) >= 0
+			if basegradient'*vq2*(αhi-αlo) >= 0
 				αhi = αlo
 			end
 			αlo = α
@@ -512,11 +512,12 @@ function get_NTv(q, G::ConstraintVariety,
     Nq = Qq[:, 1:(G.ambientdimension - G.dimensionofvariety)] # O.N.B. for the normal space at q
     Tq = Qq[:, (G.ambientdimension - G.dimensionofvariety + 1):end] # O.N.B. for tangent space at q
     # we evaluate the gradient of the obj fcn at the point `q`
-    ∇Qq = evaluateobjectivefunctiongradient(q)[2]
+    ∇Qq1, ∇Qq2 = evaluateobjectivefunctiongradient(q)
+    w1, w2 = -∇Qq1, -∇Qq2 # direction of decreasing energy function
 
-    w = -∇Qq # direction of decreasing energy function
-    vq = w - Nq * (Nq' * w) # projected gradient -∇Q(p) onto the tangent space, subtract the normal components
-	return Nq, Tq, vq
+    vq1 = w1 - Nq * (Nq' * w1) # projected gradient -∇Q(p) onto the tangent space, subtract the normal components
+	vq2 = w2 - Nq * (Nq' * w2)
+	return Nq, Tq, vq1, vq2
 end
 
 #=
@@ -560,9 +561,9 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
                 evaluateobjectivefunctiongradient::Function;
                 maxsteps, maxstepsize=2, decreasefactor=2.2, initialtime, maxseconds, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
     timesturned, valleysfound, F = 0, 0, System([G.variables[1]])
-    _, Tp, vp = get_NTv(p, G, evaluateobjectivefunctiongradient)
+    _, Tp, vp1, vp2 = get_NTv(p, G, evaluateobjectivefunctiongradient)
     Ts = [Tp] # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
-    qs, vs, ns = [p], [vp], [norm(vp)] # qs=new points on G, vs=projected gradients, ns=norms of projected gradients
+    qs, vs, ns = [p], [vp2], [norm(vp1)] # qs=new points on G, vs=projected gradients, ns=norms of projected gradients
     stepsize = Base.copy(ε0)
     for _ in 1:maxsteps
         if Base.time() - initialtime > maxseconds
@@ -571,13 +572,13 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
 		if whichstep=="onestep" || whichstep=="twostep"
         	F = computesystem(qs[end], G, evaluateobjectivefunctiongradient)
 		end
-        q, Tq, vq, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], Float64(stepsize); whichstep, maxstepsize, initialtime, maxseconds, homotopyMethod)
+        q, Tq, vq1, vq2, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], Float64(stepsize); whichstep, maxstepsize, initialtime, maxseconds, homotopyMethod)
 		push!(qs, q)
         push!(Ts, Tq)
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
-        push!(ns, norm(vq))
+        push!(ns, norm(vq1))
 		println("ns: ", ns[end])
-		push!(vs, vq)
+		push!(vs, vq2)
 		length(vs)>3 ? deleteat!(vs, 1) : nothing
         if ns[end] < tolerance
             return LocalStepsResult(p,ε0,qs,vs,ns,q,stepsize,true,timesturned,valleysfound)
@@ -644,7 +645,7 @@ function findminima(p0, tolerance,
 		jacobianG = evaluate(differentiate(G.fullequations, G.variables), G.variables=>p0)
 		jacRank = rank(jacobianG; atol=tolerance^1.5)
 	end
-    _, Tq, v = get_NTv(p, G, evaluateobjectivefunctiongradient) # Get the projected gradient at the first point
+    _, Tq, v1, v2 = get_NTv(p, G, evaluateobjectivefunctiongradient) # Get the projected gradient at the first point
 	display("Calculated Tangent Space")
 	# initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
 	ε0 = 2*initialstepsize
@@ -661,8 +662,8 @@ function findminima(p0, tolerance,
 				#setEquationsAtp!(G, ps[end]; tol=tolerance^1.5)
 				jacobianRank = rank(evaluate.(G.jacobian, G.variables=>p); atol=tolerance^2)
 				setfield!(G, :dimensionofvariety, (G.ambientdimension-jacobianRank))
-				_, Tq, v = get_NTv(ps[end], G, evaluateobjectivefunctiongradient)
-				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v, ps[end]; criticaltol=tolerance)
+				_, Tq, v1, _ = get_NTv(ps[end], G, evaluateobjectivefunctiongradient)
+				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v1, ps[end]; criticaltol=tolerance)
 				if optimality
 					return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 				end
@@ -682,11 +683,11 @@ function findminima(p0, tolerance,
 				#setEquationsAtp!(G, ps[end]; tol=tolerance^1.5)
 				jacobianRank = rank(evaluate.(G.jacobian, G.variables=>p); atol=tolerance^2)
 				setfield!(G, :dimensionofvariety, (G.ambientdimension-jacobianRank))
-				_, Tq, v = get_NTv(ps[end], G, evaluateobjectivefunctiongradient)
-				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v, ps[end]; criticaltol=tolerance)
+				_, Tq, v1, _ = get_NTv(ps[end], G, evaluateobjectivefunctiongradient)
+				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v1, ps[end]; criticaltol=tolerance)
 				if !optimality
 					optRes = findminima(ps[end], tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
-					return OptimizationResult(vcat(ps, optRes.computedpoints),p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisminimum)
+					return OptimizationResult(vcat(ps, optRes.computedpoints), p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisminimum)
 				end
 				return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 			end
@@ -697,8 +698,8 @@ function findminima(p0, tolerance,
 				jacobianRank = rank(evaluate.(G.jacobian, G.variables=>p); atol=tolerance^2)
 				setfield!(G, :dimensionofvariety, (G.ambientdimension-jacobianRank))
 
-				_, Tq, v = get_NTv(ps[end], G, evaluateobjectivefunctiongradient)
-				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v, ps[end]; criticaltol=tolerance)
+				_, Tq, v, _ = get_NTv(ps[end], G, evaluateobjectivefunctiongradient)
+				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v1, ps[end]; criticaltol=tolerance)
 				if optimality
 					return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 				end
