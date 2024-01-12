@@ -161,7 +161,7 @@ function computesystem(p, G::ConstraintVariety,
     Np = Up[:, 1:(G.ambientdimension - G.dimensionofvariety)] # gives ONB for N_p(G) normal space
 
     # we evaluate the gradient of the obj fcn at the point `p`
-    ∇Qp = evaluateobjectivefunctiongradient(p)
+    ∇Qp = evaluateobjectivefunctiongradient(p)[2]
 
     w = -∇Qp # direction of decreasing energy function
     v = w - Np * (Np' * w) # projected gradient -∇Q(p) onto the tangent space, subtract the normal components
@@ -189,7 +189,7 @@ for the sample with lowest energy
 =#
 function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, whichstep; initialtime = Base.time(), maxseconds = 50)
 	if length(p)>20
-		q = gaussnewtonstep(G, p, 1e-3, -evaluateobjectivefunctiongradient(p); initialtime=initialtime, maxseconds=maxseconds)[1]
+		q = gaussnewtonstep(G, p, 1e-3, -evaluateobjectivefunctiongradient(p)[2]; initialtime=initialtime, maxseconds=maxseconds)[1]
 		( Q(q) < Q(p) && return(q, true) ) || return(q, false)
 	end
 
@@ -407,7 +407,7 @@ function alternative_backtracking_linesearch(Q::Function, F::System, G::Constrai
         success ? p=q : nothing
         _, Tq, vq = get_NTv(p, G, evaluateobjectivefunctiongradient)
         # Proceed until the Wolfe condition is satisfied or the stepsize becomes too small. First we quickly find a lower bound, then we gradually increase this lower-bound
-		if (Q(p0)-Q(p) >= r*α*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)) && vq'*basegradient >= 0 && success)
+		if (Q(p0)-Q(p) >= r*α*Base.abs(basegradient'*evaluateobjectivefunctiongradient(p0)[1]) && vq'*basegradient >= 0 && success)
 			return q, Tq, vq, success, α
 		elseif α<1e-6
 	    	return(q, Tq, vq, false, stepsize)
@@ -512,7 +512,7 @@ function get_NTv(q, G::ConstraintVariety,
     Nq = Qq[:, 1:(G.ambientdimension - G.dimensionofvariety)] # O.N.B. for the normal space at q
     Tq = Qq[:, (G.ambientdimension - G.dimensionofvariety + 1):end] # O.N.B. for tangent space at q
     # we evaluate the gradient of the obj fcn at the point `q`
-    ∇Qq = evaluateobjectivefunctiongradient(q)
+    ∇Qq = evaluateobjectivefunctiongradient(q)[2]
 
     w = -∇Qq # direction of decreasing energy function
     vq = w - Nq * (Nq' * w) # projected gradient -∇Q(p) onto the tangent space, subtract the normal components
@@ -594,7 +594,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
             end
         end
         # The next (initial) stepsize is determined by the previous step and how much the energy function changed - in accordance with RieOpt.
-		stepsize = Base.minimum([ Base.maximum([ success ? stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])/(vs[end]'*evaluateobjectivefunctiongradient(qs[end]))  : 0.1*stepsize, 1e-4]), maxstepsize])
+		stepsize = Base.minimum([ Base.maximum([ success ? stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])[2]/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])[2])  : 0.1*stepsize, 1e-4]), maxstepsize])
     end
     return LocalStepsResult(p,ε0,qs,vs,ns,qs[end],stepsize,false,timesturned,valleysfound)
 end
@@ -634,9 +634,9 @@ function findminima(p0, tolerance,
     ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
 	jacobianG = evaluate.(differentiate(G.fullequations, G.variables), G.variables=>p0)
 	jacRank = rank(jacobianG; atol=tolerance^1.5)
-	evaluateobjectivefunctiongradient = x -> gradient(objectiveFunction, x)
+	evaluateobjectivefunctiongradient = x -> (gradient(objectiveFunction, x), gradient(objectiveFunction, x))
 	if stepdirection == "newtonstep"
-		evaluateobjectivefunctiongradient = x -> hessian(objectiveFunction, x) \ gradient(objectiveFunction, x)
+		evaluateobjectivefunctiongradient = x -> (gradient(objectiveFunction, x), hessian(objectiveFunction, x) \ gradient(objectiveFunction, x))
 	end
 	if jacRank==0
 		p, optimality = resolveSingularity(ps[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
