@@ -188,7 +188,7 @@ If we are at a point of slow progression / singularity we blow the point up to a
 for the sample with lowest energy
 =#
 function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, whichstep; initialtime = Base.time(), maxseconds = 50)
-	if length(p)>20
+	if length(p)>5
 		q = gaussnewtonstep(G, p, 1e-3, -evaluateobjectivefunctiongradient(p)[2]; initialtime=initialtime, maxseconds=maxseconds)[1]
 		( Q(q) < Q(p) && return(q, true) ) || return(q, false)
 	end
@@ -338,8 +338,7 @@ end
  Checks, whether p is a local minimum of the objective function Q w.r.t. the tangent space Tp
 =#
 function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, Tp, v, p::Vector; tol=1e-4, criticaltol=1e-3)
-	return(false)
-	if length(p)>7
+	if length(p)>5
 		q = gaussnewtonstep(G, p, 1e-2, -evaluateobjectivefunctiongradient(p)[2]; initialtime=Base.time(), maxseconds=10)[1]
 		return Q(q)<Q(p)
 	end
