@@ -356,7 +356,7 @@ function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiong
 	Htotal = H+λ0'*HConstraints
 	projH = Matrix{Float64}(Tp'*Htotal*Tp)
 	projEigvals = real(eigvals(projH)) #projH symmetric => all real eigenvalues
-	println("Eigenvalues of the projected Hessian: ", projEigvals)
+	println("Eigenvalues of the projected Hessian: ", round.(1000 .* projEigvals) ./ 1000)
 	indices = filter(i->abs(projEigvals[i])<=tol, 1:length(projEigvals))
 	projEigvecs = real(eigvecs(projH))[:, indices]
 	projEigvecs = Tp*projEigvecs
@@ -432,8 +432,9 @@ function backtracking_linesearch(Q::Function, F::System, G::ConstraintVariety, e
 		λ0 = A\-evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, vcat(G.EDTracker.tracker.homotopy.F.interpreted.system.variables, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(p, [0 for _ in length(p)+1:length(G.EDTracker.tracker.homotopy.F.interpreted.system.variables)], q0))
 		setStartSolution(G.EDTracker, vcat(p, λ0))
 	end
+	print("α: ")
     while true
-		println("α: ", α[end])
+		print(round(α[end], digits=3), ", ")
 		q, success = stepchoice(F, G, whichstep, α[end], p0, basegradient; initialtime, maxseconds, homotopyMethod)
 		if time()-initialtime > maxseconds
 			_, Tq, vq1, vq2 = get_NTv(q, G, evaluateobjectivefunctiongradient)
