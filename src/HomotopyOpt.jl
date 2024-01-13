@@ -338,7 +338,7 @@ end
  Checks, whether p is a local minimum of the objective function Q w.r.t. the tangent space Tp
 =#
 function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, Tp, v, p::Vector; tol=1e-4, criticaltol=1e-3)
-	if length(p)>5
+	if length(p)>20
 		q = gaussnewtonstep(G, p, 1e-2, -evaluateobjectivefunctiongradient(p)[2]; initialtime=Base.time(), maxseconds=10)[1]
 		return Q(q)<Q(p)
 	end
@@ -356,6 +356,7 @@ function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiong
 	Htotal = H+λ0'*HConstraints
 	projH = Matrix{Float64}(Tp'*Htotal*Tp)
 	projEigvals = real(eigvals(projH)) #projH symmetric => all real eigenvalues
+	println("Eigenvalues of the projected Hessian: ", projEigvals)
 	indices = filter(i->abs(projEigvals[i])<=tol, 1:length(projEigvals))
 	projEigvecs = real(eigvecs(projH))[:, indices]
 	projEigvecs = Tp*projEigvecs
