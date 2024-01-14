@@ -4,7 +4,6 @@ import HomotopyContinuation: @var, evaluate, differentiate, start_parameters!, t
 import LinearAlgebra: norm, transpose, qr, rank, normalize, pinv, eigvals, abs, eigvecs, svd
 import Plots: plot, scatter!, Animation, frame
 import ForwardDiff: hessian, gradient
-import ProgressBars: ProgressBar, update
 import HomotopyContinuation
 
 export ConstraintVariety,
@@ -192,7 +191,7 @@ If we are at a point of slow progression / singularity we blow the point up to a
 for the sample with lowest energy
 =#
 function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, whichstep; initialtime = Base.time(), maxseconds = 50)
-	if length(p)>5
+	if length(p)>20
 		q = gaussnewtonstep(G, p, 1e-3, -evaluateobjectivefunctiongradient(p)[2]; initialtime=initialtime, maxseconds=maxseconds)[1]
 		( Q(q) < Q(p) && return(q, true) ) || return(q, false)
 	end
@@ -481,7 +480,7 @@ function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep,
 	# TODO Add a more meaningful stopping criterion
 	for _ in 1:8
 		global α = 0.5*(αlo+αhi)
-		println("α: ", α)
+		print(round(α, digits=3), ", ")
 		#println("α: ", α)
 		global q, success = stepchoice(F, G, whichstep, α, p0, basegradient; initialtime, maxseconds, homotopyMethod)
 		_, _, _, vq2 = get_NTv(q, G, evaluateobjectivefunctiongradient)
@@ -563,8 +562,7 @@ WARNING This is redundant and can be merged with findminima
 =#
 function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
                 objectiveFunction::Function,
-                evaluateobjectivefunctiongradient::Function,
-				PBar::ProgressBar;
+                evaluateobjectivefunctiongradient::Function;
                 maxsteps, maxstepsize=2, decreasefactor=2.2, initialtime, maxseconds, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
     timesturned, valleysfound, F = 0, 0, System([G.variables[1]])
     _, Tp, vp1, vp2 = get_NTv(p, G, evaluateobjectivefunctiongradient)
@@ -584,7 +582,6 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
         push!(ns, norm(vq1))
 		println("ns: ", ns[end])
-		update(PBar, Int(100*round(ns[1]/ns[end])))
 		push!(vs, vq2)
 		length(vs)>3 ? deleteat!(vs, 1) : nothing
         if ns[end] < tolerance
@@ -657,10 +654,9 @@ function findminima(p0, tolerance,
 	# initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
 	ε0 = 2*initialstepsize
     lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,false,0,0)
-	PBar = ProgressBar(100)
     while (Base.time() - initialtime) <= maxseconds
         # update LSR, only store the *last local run*
-        lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient, PBar; maxsteps=maxlocalsteps, maxstepsize=100., initialtime=initialtime, maxseconds=maxseconds, whichstep=whichstep, homotopyMethod=homotopyMethod)
+        lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, maxstepsize=100., initialtime=initialtime, maxseconds=maxseconds, whichstep=whichstep, homotopyMethod=homotopyMethod)
 		push!(ps, lastLSR.allcomputedpoints[end])
 		jacobian = evaluate.(differentiate(G.fullequations, G.variables), G.variables=>lastLSR.newsuggestedstartpoint)
 		jR = rank(jacobian; atol=tolerance^2)
