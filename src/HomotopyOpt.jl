@@ -584,7 +584,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
         push!(ns, norm(vq1))
 		println("ns: ", ns[end])
-		update(PBar, ns[end])
+		update(PBar, round(ns[end]/tolerance)*tolerance)
 		push!(vs, vq2)
 		length(vs)>3 ? deleteat!(vs, 1) : nothing
         if ns[end] < tolerance
