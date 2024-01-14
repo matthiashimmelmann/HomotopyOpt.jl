@@ -654,7 +654,7 @@ function findminima(p0, tolerance,
 	# initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
 	ε0 = 2*initialstepsize
     lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,false,0,0)
-	PBar = ProgressBar(0:tol:round(objectiveFunction(p0)/tol)*tol)
+	PBar = ProgressBar(0:tolerance:round(objectiveFunction(p0)/tol)*tol)
     while (Base.time() - initialtime) <= maxseconds
         # update LSR, only store the *last local run*
         lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient, PBar; maxsteps=maxlocalsteps, maxstepsize=100., initialtime=initialtime, maxseconds=maxseconds, whichstep=whichstep, homotopyMethod=homotopyMethod)
