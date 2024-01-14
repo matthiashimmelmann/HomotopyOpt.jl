@@ -340,11 +340,6 @@ end
  Checks, whether p is a local minimum of the objective function Q w.r.t. the tangent space Tp
 =#
 function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, Tp, v, p::Vector; tol=1e-4, criticaltol=1e-3)
-	if length(p)>8
-		q = gaussnewtonstep(G, p, 1e-3, -evaluateobjectivefunctiongradient(p)[2]; initialtime=Base.time(), maxseconds=10)[1]
-		return Q(q)<Q(p)
-	end
-
 	H = hessian(Q, p)
 	HConstraints = [evaluate.(differentiate(differentiate(eq, G.variables), G.variables), G.variables=>p) for eq in G.fullequations]
 	Qalg = Q(p)+(G.variables-p)'*gradient(Q,p)+0.5*(G.variables-p)'*H*(G.variables-p) # Taylor Approximation of x, since only the Hessian is of interest anyway
