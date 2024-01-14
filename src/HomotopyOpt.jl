@@ -12,6 +12,7 @@ export ConstraintVariety,
        draw,
 	   addSamples!,
 	   setEquationsAtp!,
+#INFO: The following package is not maintained by me. Find it here: https://github.com/JuliaHomotopyContinuation/HomotopyContinuation.jl
 	   HomotopyContinuation
 
 #=
