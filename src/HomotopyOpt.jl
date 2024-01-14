@@ -584,7 +584,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
         push!(ns, norm(vq1))
 		println("ns: ", ns[end])
-		update(PBar, round(ns[end]/tolerance)*tolerance)
+		update(PBar, Int(100*round(ns[1]/ns[end])))
 		push!(vs, vq2)
 		length(vs)>3 ? deleteat!(vs, 1) : nothing
         if ns[end] < tolerance
@@ -657,7 +657,7 @@ function findminima(p0, tolerance,
 	# initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
 	ε0 = 2*initialstepsize
     lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,false,0,0)
-	PBar = ProgressBar(0:tolerance:round(objectiveFunction(p0)/tolerance)*tolerance)
+	PBar = ProgressBar(100)
     while (Base.time() - initialtime) <= maxseconds
         # update LSR, only store the *last local run*
         lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient, PBar; maxsteps=maxlocalsteps, maxstepsize=100., initialtime=initialtime, maxseconds=maxseconds, whichstep=whichstep, homotopyMethod=homotopyMethod)
