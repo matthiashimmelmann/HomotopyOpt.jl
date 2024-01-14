@@ -353,7 +353,7 @@ function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiong
 	Htotal = H+λ0'*HConstraints
 	projH = Matrix{Float64}(Tp'*Htotal*Tp)
 	projEigvals = real(eigvals(projH)) #projH symmetric => all real eigenvalues
-	println("Eigenvalues of the projected Hessian: ", round.(1000 .* projEigvals) ./ 1000)
+	println("Eigenvalues of the projected Hessian: ", round.(1000 .* projEigvals, sigdigits=3) ./ 1000)
 	indices = filter(i->abs(projEigvals[i])<=tol, 1:length(projEigvals))
 	projEigvecs = real(eigvecs(projH))[:, indices]
 	projEigvecs = Tp*projEigvecs
@@ -645,7 +645,6 @@ function findminima(p0, tolerance,
 		jacRank = rank(jacobianG; atol=tolerance^1.5)
 	end
     _, Tq, v1, v2 = get_NTv(p, G, evaluateobjectivefunctiongradient) # Get the projected gradient at the first point
-	display("Calculated Tangent Space")
 	# initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
 	ε0 = 2*initialstepsize
     lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,false,0,0)
@@ -668,7 +667,6 @@ function findminima(p0, tolerance,
 				end
 				println("Resolving")
 				p, foundsomething = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
-				display(norm(p-ps[end]))
 				#setEquationsAtp!(G, p; tol=tolerance^1.5)
 				jacobianRank = rank(evaluate.(G.jacobian, G.variables=>p); atol=tolerance^2)
 				setfield!(G, :dimensionofvariety, (G.ambientdimension-jacobianRank))
