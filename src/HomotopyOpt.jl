@@ -191,7 +191,7 @@ If we are at a point of slow progression / singularity we blow the point up to a
 for the sample with lowest energy
 =#
 function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, whichstep; initialtime = Base.time(), maxseconds = 50)
-	if length(p)>20
+	if length(p)>8
 		q = gaussnewtonstep(G, p, 1e-3, -evaluateobjectivefunctiongradient(p)[2]; initialtime=initialtime, maxseconds=maxseconds)[1]
 		( Q(q) < Q(p) && return(q, true) ) || return(q, false)
 	end
@@ -246,7 +246,6 @@ function gaussnewtonstep(G::ConstraintVariety, p, stepsize, v; tol=1e-8, initial
 	global damping = 0.5
 	global qnew = q
 	jac = hcat([differentiate(eq, G.variables) for eq in G.fullequations]...)
-	display(norm(evaluate.(G.fullequations, G.variables=>q)))
 	while(norm(evaluate.(G.fullequations, G.variables=>q)) > tol)
 		J = Matrix{Float64}(evaluate.(jac, G.variables=>q))
 		global qnew = q .- damping*pinv(J)'*evaluate.(G.fullequations, G.variables=>q)
@@ -341,8 +340,8 @@ end
  Checks, whether p is a local minimum of the objective function Q w.r.t. the tangent space Tp
 =#
 function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, Tp, v, p::Vector; tol=1e-4, criticaltol=1e-3)
-	if length(p)>20
-		q = gaussnewtonstep(G, p, 1e-2, -evaluateobjectivefunctiongradient(p)[2]; initialtime=Base.time(), maxseconds=10)[1]
+	if length(p)>8
+		q = gaussnewtonstep(G, p, 1e-3, -evaluateobjectivefunctiongradient(p)[2]; initialtime=Base.time(), maxseconds=10)[1]
 		return Q(q)<Q(p)
 	end
 
@@ -577,6 +576,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
         	F = computesystem(qs[end], G, evaluateobjectivefunctiongradient)
 		end
         q, Tq, vq1, vq2, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], Float64(stepsize); whichstep, maxstepsize, initialtime, maxseconds, homotopyMethod)
+		print("\n")
 		push!(qs, q)
         push!(Ts, Tq)
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
