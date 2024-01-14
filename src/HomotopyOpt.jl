@@ -4,6 +4,7 @@ import HomotopyContinuation: @var, evaluate, differentiate, start_parameters!, t
 import LinearAlgebra: norm, transpose, qr, rank, normalize, pinv, eigvals, abs, eigvecs, svd
 import Plots: plot, scatter!, Animation, frame
 import ForwardDiff: hessian, gradient
+import ProgressBars: ProgressBar, update
 
 export ConstraintVariety,
        findminima,
@@ -559,7 +560,8 @@ WARNING This is redundant and can be merged with findminima
 =#
 function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
                 objectiveFunction::Function,
-                evaluateobjectivefunctiongradient::Function;
+                evaluateobjectivefunctiongradient::Function,
+				PBar::ProgressBar;
                 maxsteps, maxstepsize=2, decreasefactor=2.2, initialtime, maxseconds, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
     timesturned, valleysfound, F = 0, 0, System([G.variables[1]])
     _, Tp, vp1, vp2 = get_NTv(p, G, evaluateobjectivefunctiongradient)
@@ -579,6 +581,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
         push!(ns, norm(vq1))
 		println("ns: ", ns[end])
+		update(Pbar, ns[end])
 		push!(vs, vq2)
 		length(vs)>3 ? deleteat!(vs, 1) : nothing
         if ns[end] < tolerance
@@ -651,9 +654,10 @@ function findminima(p0, tolerance,
 	# initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
 	ε0 = 2*initialstepsize
     lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,false,0,0)
+	PBar = ProgressBar(0:tol:round(objectiveFunction(p0)/tol)*tol)
     while (Base.time() - initialtime) <= maxseconds
         # update LSR, only store the *last local run*
-        lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, maxstepsize=100., initialtime=initialtime, maxseconds=maxseconds, whichstep=whichstep, homotopyMethod=homotopyMethod)
+        lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient, PBar; maxsteps=maxlocalsteps, maxstepsize=100., initialtime=initialtime, maxseconds=maxseconds, whichstep=whichstep, homotopyMethod=homotopyMethod)
 		push!(ps, lastLSR.allcomputedpoints[end])
 		jacobian = evaluate.(differentiate(G.fullequations, G.variables), G.variables=>lastLSR.newsuggestedstartpoint)
 		jR = rank(jacobian; atol=tolerance^2)
