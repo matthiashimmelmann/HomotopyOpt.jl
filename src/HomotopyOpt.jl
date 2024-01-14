@@ -5,6 +5,7 @@ import LinearAlgebra: norm, transpose, qr, rank, normalize, pinv, eigvals, abs, 
 import Plots: plot, scatter!, Animation, frame
 import ForwardDiff: hessian, gradient
 import ProgressBars: ProgressBar, update
+import HomotopyContinuation
 
 export ConstraintVariety,
        findminima,
