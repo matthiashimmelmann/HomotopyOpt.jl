@@ -649,8 +649,8 @@ function findminima(p0, tolerance,
 	ε0 = 2*initialstepsize
     lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,false,0,0)
 	if norm(v1)<tolerance
-		optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v1, ps[end]; criticaltol=tolerance)
-		optimality ? return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality) : continue
+		optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctradient, Tq, v1, ps[end]; criticaltol=tolerance)
+		optimality ? return(OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)) : continue
 	end
     while (Base.time() - initialtime) <= maxseconds
         # update LSR, only store the *last local run*
