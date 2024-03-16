@@ -191,7 +191,7 @@ If we are at a point of slow progression / singularity we blow the point up to a
 for the sample with lowest energy
 =#
 function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, whichstep; initialtime = Base.time(), maxseconds = 50)
-	if length(p)>8
+	if length(p)>3
 		q = gaussnewtonstep(G, p, 1e-3, -evaluateobjectivefunctiongradient(p)[2]; initialtime=initialtime, maxseconds=maxseconds)[1]
 		( Q(q) < Q(p) && return(q, true) ) || return(q, false)
 	end
@@ -353,7 +353,7 @@ function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiong
 	Htotal = H+λ0'*HConstraints
 	projH = Matrix{Float64}(Tp'*Htotal*Tp)
 	projEigvals = real(eigvals(projH)) #projH symmetric => all real eigenvalues
-	println("Eigenvalues of the projected Hessian: ", round.(1000 .* projEigvals, sigdigits=3) ./ 1000)
+	#println("Eigenvalues of the projected Hessian: ", round.(1000 .* projEigvals, sigdigits=3) ./ 1000)
 	indices = filter(i->abs(projEigvals[i])<=tol, 1:length(projEigvals))
 	projEigvecs = real(eigvecs(projH))[:, indices]
 	projEigvecs = Tp*projEigvecs
@@ -429,9 +429,9 @@ function backtracking_linesearch(Q::Function, F::System, G::ConstraintVariety, e
 		λ0 = A\-evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, vcat(G.EDTracker.tracker.homotopy.F.interpreted.system.variables, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(p, [0 for _ in length(p)+1:length(G.EDTracker.tracker.homotopy.F.interpreted.system.variables)], q0))
 		setStartSolution(G.EDTracker, vcat(p, λ0))
 	end
-	print("α: ")
+	#print("α: ")
     while true
-		print(round(α[end], digits=3), ", ")
+		#print(round(α[end], digits=3), ", ")
 		q, success = stepchoice(F, G, whichstep, α[end], p0, basegradient; initialtime, maxseconds, homotopyMethod)
 		if time()-initialtime > maxseconds
 			_, Tq, vq1, vq2 = get_NTv(q, G, evaluateobjectivefunctiongradient)
@@ -474,7 +474,7 @@ function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep,
 	# TODO Add a more meaningful stopping criterion
 	for _ in 1:8
 		global α = 0.5*(αlo+αhi)
-		print(round(α, digits=3), ", ")
+		#print(round(α, digits=3), ", ")
 		#println("α: ", α)
 		global q, success = stepchoice(F, G, whichstep, α, p0, basegradient; initialtime, maxseconds, homotopyMethod)
 		_, _, _, vq2 = get_NTv(q, G, evaluateobjectivefunctiongradient)
@@ -505,7 +505,7 @@ end
 function get_NTv(q, G::ConstraintVariety,
                     evaluateobjectivefunctiongradient::Function)
     dgq = evaluate.(G.jacobian, G.variables => q)
-    Qq,_ = qr(Matrix{Float64}(transpose(dgq)))
+    Qq = svd(Matrix{Float64}(transpose(dgq))).U
 	#index = count(p->p>1e-8, S)
     Nq = Qq[:, 1:(G.ambientdimension - G.dimensionofvariety)] # O.N.B. for the normal space at q
     Tq = Qq[:, (G.ambientdimension - G.dimensionofvariety + 1):end] # O.N.B. for tangent space at q
@@ -571,12 +571,12 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
         	F = computesystem(qs[end], G, evaluateobjectivefunctiongradient)
 		end
         q, Tq, vq1, vq2, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], Float64(stepsize); whichstep, maxstepsize, initialtime, maxseconds, homotopyMethod)
-		print("\n")
+		#print("\n")
 		push!(qs, q)
         push!(Ts, Tq)
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
         push!(ns, norm(vq1))
-		println("ns: ", ns[end])
+		#println("ns: ", ns[end])
 		push!(vs, vq2)
 		length(vs)>3 ? deleteat!(vs, 1) : nothing
         if ns[end] < tolerance
@@ -653,10 +653,10 @@ function findminima(p0, tolerance,
         lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, maxstepsize=100., initialtime=initialtime, maxseconds=maxseconds, whichstep=whichstep, homotopyMethod=homotopyMethod)
 		push!(ps, lastLSR.allcomputedpoints[end])
 		jacobian = evaluate.(differentiate(G.fullequations, G.variables), G.variables=>lastLSR.newsuggestedstartpoint)
-		jR = rank(jacobian; atol=tolerance^2)
+		jR = rank(jacobian; atol=tolerance^1.5)
         if lastLSR.converged
 			# if we are in a singularity do a few steps again - if we revert back to the singularity, it is optiomal
-			if jR != jacRank || norm(ps[end-1]-ps[end]) < tolerance^2
+			if jR != jacRank || norm(ps[end-1]-ps[end]) < tolerance^3
 				#setEquationsAtp!(G, ps[end]; tol=tolerance^1.5)
 				jacobianRank = rank(evaluate.(G.jacobian, G.variables=>p); atol=tolerance^2)
 				setfield!(G, :dimensionofvariety, (G.ambientdimension-jacobianRank))
@@ -665,7 +665,7 @@ function findminima(p0, tolerance,
 				if optimality
 					return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 				end
-				println("Resolving")
+				#println("Resolving")
 				p, foundsomething = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
 				#setEquationsAtp!(G, p; tol=tolerance^1.5)
 				jacobianRank = rank(evaluate.(G.jacobian, G.variables=>p); atol=tolerance^2)
@@ -700,9 +700,9 @@ function findminima(p0, tolerance,
 				if optimality
 					return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 				end
-				println("Resolving")
+				#println("Resolving")
 				p, foundsomething = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient, whichstep; initialtime=initialtime, maxseconds=maxseconds)
-				display(norm(p-ps[end]))
+				#display(norm(p-ps[end]))
 				#setEquationsAtp!(G, p; tol=tolerance^1.5)
 				jacobianRank = rank(evaluate.(G.jacobian, G.variables=>p); atol=tolerance^2)
 				setfield!(G, :dimensionofvariety, (G.ambientdimension-jacobianRank))
