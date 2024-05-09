@@ -423,7 +423,7 @@ function backtracking_linesearch(Q::Function, F::System, G::ConstraintVariety, e
 	α = [0, stepsize]
 	p = Base.copy(p0)
 	if whichstep=="EDStep" || homotopyMethod=="Newton"
-		q0 = p+1e-4*Basenormal[:,1]
+		q0 = p+1e-3*Basenormal[:,1]
 		start_parameters!(G.EDTracker.tracker, q0)
 		A = evaluate.(differentiate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(p)+1:end]), G.variables => p)
 		λ0 = A\-evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, vcat(G.EDTracker.tracker.homotopy.F.interpreted.system.variables, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(p, [0 for _ in length(p)+1:length(G.EDTracker.tracker.homotopy.F.interpreted.system.variables)], q0))
@@ -438,7 +438,7 @@ function backtracking_linesearch(Q::Function, F::System, G::ConstraintVariety, e
 			return q, Tq, vq1, vq2, success, α[end]
 		end
         _, Tq, vq1, vq2 = get_NTv(q, G, evaluateobjectivefunctiongradient)
-		if ( ( Q(q) > Q(p0) + r*α[end]*basegradient'*basegradient || (Q(q) > Q(p0) && q!=p0) ) && success)
+		if ( ( Q(q) > Q(p0) - r*α[end]*basegradient'*basegradient || (Q(q) > Q(p0) && q!=p0) ) && success)
 			helper = zoom(α[end-1], α[end], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
 			_, Tq, vq1, vq2 = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
 			return helper[1], Tq, vq1, vq2, helper[2], helper[end]
@@ -460,7 +460,7 @@ function backtracking_linesearch(Q::Function, F::System, G::ConstraintVariety, e
 		end
 		deleteat!(α, 1)
 		if α[end] > maxstepsize
-			return q, Tq, vq1, vq2, success, maxstepsize
+			return q, Tq, vq1, vq2, success, α[end-1]
 		end
     end
 end
@@ -482,7 +482,7 @@ function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep,
 			return q, success, α
 		end
 
-		if  Q(q) > Q(p0) + r*α*basegradient'*basegradient || Q(q) >= Q(qlo)
+		if  Q(q) > Q(p0) - r*α*basegradient'*basegradient
 			αhi = α
 		else
 			if Base.abs(basegradient'*vq2) <= Base.abs(basegradient'*basegradient)*s
