@@ -12,6 +12,7 @@ export ConstraintVariety,
        draw,
 	   addSamples!,
 	   setEquationsAtp!,
+       gaussnewtonstep,
 #INFO: The following package is not maintained by us. Find it here: https://github.com/JuliaHomotopyContinuation/HomotopyContinuation.jl
 	   HomotopyContinuation
 
@@ -122,14 +123,16 @@ end
 #=
  We predict in the projected gradient direction and correct by using the Gauss-Newton method
 =#
-function gaussnewtonstep(equations, jacobian, vars, p; tol=1e-12, initialtime, maxtime)
+function gaussnewtonstep(equations, jacobian, vars, p; tol=1e-12, initialtime=Base.time(), maxtime=10, maxsteps=2)
 	global q = p
-	while(norm(evaluate.(equations, vars=>q)) > tol)
+    global iter = 1
+	while norm(evaluate.(equations, vars=>q)) > tol && iter <= maxsteps
         if Base.time()-initialtime > maxtime
             break
         end
 		J = Matrix{Float64}(evaluate.(jacobian, vars=>q))
-		global q = q .- pinv(J)'*evaluate.(equations, vars=>q)
+		global q = q .- (J') \ evaluate.(equations, vars=>q)
+        global iter += 1
 	end
 	return q
 end
@@ -141,8 +144,8 @@ function EDStep(ConstraintVariety, p, v; homotopyMethod, tol=1e-10, amount_Euler
     start_parameters!(ConstraintVariety.EDTracker.tracker, q0)
     A = evaluate.(differentiate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(p)+1:end]), ConstraintVariety.variables => p)
     λ0 = A\-evaluate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, vcat(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(p, [0 for _ in length(p)+1:length(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables)], q0))
-    #setStartSolution(ConstraintVariety.EDTracker, vcat(p, λ0))
-    setStartSolution(ConstraintVariety.EDTracker, vcat(p, [0. for _ in λ0]))
+    setStartSolution(ConstraintVariety.EDTracker, vcat(p, λ0))
+    #setStartSolution(ConstraintVariety.EDTracker, vcat(p, [0. for _ in λ0]))
 
     if homotopyMethod=="HomotopyContinuation"
         q = p+v
@@ -158,16 +161,17 @@ function EDStep(ConstraintVariety, p, v; homotopyMethod, tol=1e-10, amount_Euler
         currentSolution = ConstraintVariety.EDTracker.startSolution
         vars = ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
         q = p+(1/(amount_Euler_steps+1))*v
-        currentSolution[1:length(q)] = q
+        #currentSolution[1:length(q)] = q
         equations = evaluate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
-        currentSolution = gaussnewtonstep(equations, ConstraintVariety.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime)     
+        currentSolution = currentSolution .+ EulerStep(ConstraintVariety.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1))
+        currentSolution = gaussnewtonstep(equations, ConstraintVariety.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime, maxsteps = amount_Euler_steps==0 ? 100 : 2)     
 
         for step in 1:amount_Euler_steps
             q = p+((step+1)/(amount_Euler_steps+1))*v
             #prev_sol = currentSolution
             currentSolution = currentSolution .+ EulerStep(ConstraintVariety.EDTracker, currentSolution, p, v, step/(amount_Euler_steps+1), 1/(amount_Euler_steps+1))
             equations = evaluate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
-            currentSolution = gaussnewtonstep(equations, ConstraintVariety.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime)            
+            currentSolution = gaussnewtonstep(equations, ConstraintVariety.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime, maxsteps = amount_Euler_steps==step ? 100 : 2)            
         end
         #println(norm(prev_sol-currentSolution), " ", norm(prediction-currentSolution))
         return currentSolution[1:length(q)]
