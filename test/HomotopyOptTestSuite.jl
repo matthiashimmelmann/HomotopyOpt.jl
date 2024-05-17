@@ -3,7 +3,7 @@ using HomotopyContinuation, LinearAlgebra, Random
 
 Random.seed!(1234);
 N_samples=300
-
+#=
 #=
 #=
 G = HomotopyOpt.ConstraintVariety(x->[x[1]^2+x[2]^2-1],2,1,N_samples)
@@ -161,6 +161,24 @@ let
     end
     println("HomotopyContinuation...\t", "avg. time: ", round(1000*(Base.time()-time4)/length(G.samples), digits=1), "ms,\t", "% converged: ", round(100*convergedPaths/length(G.samples), digits=1), ",\tavg. local steps: ", round(localSteps/length(G.samples), digits=1), ",\t% minimal: ", round(100*convergedPaths/length(G.samples), digits=1))
     println(" ")
+end
+
+let 
+    global convergedPaths, localSteps, isMinimum = 0, 0, 0
+    time4 = Base.time()
+    println("Lagrange Multiplier...\t", "avg. time: ", round(1000*(Base.time()-time4)/length(G.samples), digits=1), "ms,\t", "% converged: ", round(100*convergedPaths/length(G.samples), digits=1), ",\tavg. local steps: ", round(localSteps/length(G.samples), digits=1), ",\t% minimal: ", round(100*convergedPaths/length(G.samples), digits=1))
+end
+
+let 
+    global convergedPaths, localSteps, isMinimum = 0, 0, 0
+    time4 = Base.time()
+    println("ManOpt...\t", "avg. time: ", round(1000*(Base.time()-time4)/length(G.samples), digits=1), "ms,\t", "% converged: ", round(100*convergedPaths/length(G.samples), digits=1), ",\tavg. local steps: ", round(localSteps/length(G.samples), digits=1), ",\t% minimal: ", round(100*convergedPaths/length(G.samples), digits=1))
+end
+
+let 
+    global convergedPaths, localSteps, isMinimum = 0, 0, 0
+    time4 = Base.time()
+    println("Inner Point...\t", "avg. time: ", round(1000*(Base.time()-time4)/length(G.samples), digits=1), "ms,\t", "% converged: ", round(100*convergedPaths/length(G.samples), digits=1), ",\tavg. local steps: ", round(localSteps/length(G.samples), digits=1), ",\t% minimal: ", round(100*convergedPaths/length(G.samples), digits=1))
 end
 
 
@@ -341,3 +359,110 @@ for n in [(2,2), (3,3), (4,4), (5,5)]
     end
 end
 #close(filename)
+=#
+function gaussnewtonstep(G, p; tol=1e-8)
+	global damping = 0.5
+	global qnew,q = p,p
+	jac = hcat([differentiate(eq, G.variables) for eq in G.fullequations]...)
+	while(norm(evaluate.(G.fullequations, G.variables=>q)) > tol)
+		J = Matrix{Float64}(evaluate.(jac, G.variables=>q))
+		global qnew = q .- damping*pinv(J)'*evaluate.(G.fullequations, G.variables=>q)
+		if norm(evaluate.(G.fullequations, G.variables=>qnew)) <= norm(evaluate.(G.fullequations, G.variables=>q))
+			global damping = damping*1.2
+		else
+			global damping = damping/2
+		end
+		q = qnew
+	end
+	return q
+end
+
+function toArray(p)
+    configuration = Vector{Float64}([])
+    for i in 1:3, j in 4:6
+        push!(configuration, p[i,j])
+    end
+    return configuration
+end
+
+function toMatrix(p,p0)
+    output = Base.copy(p0)
+    count = 1
+    for i in 1:3, j in 4:6
+        output[i,j] = p[count]
+        count +=1
+    end
+    return output
+end
+
+
+println("Bricard Octahedron Test")
+@var x[1:3,1:6]
+p0 = [0 0 -1.; 1 -1 0; 1 1 0; -1 -1 0; -1 1 0; 0 0 1;]'
+edges = [(1,4), (1,5), (2,6), (3,6), (4,6), (5,6), (4,5), (2,5), (3,4)]
+xs = zeros(HomotopyContinuation.Expression,(3,6))
+xs[:,1:3] = p0[:,1:3]
+xs[:,4:6] = x[:,4:6]
+xvarz = vcat([x[i,j] for i in 1:3, j in 4:6]...)
+barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar[2]]).^2) for bar in edges]
+barequations = Vector{Expression}(rand(Float64,8,9)*barequations)
+global cursol = toArray(p0)#+0.05*rand(Float64,9)
+nlp = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>cursol))
+global v = real.(nlp[:,1] ./ (norm(nlp[:,1])*nlp[1,1]))
+global n = vcat(cross(v[1:3],[1,1,1]),cross(v[4:6],[1,1,1]),cross(v[7:9],[1,1,1]))
+global cursol = toArray(p0)
+solutionarray1, solutionarray2, solutioncurve = [],[],[]
+@var u[1:length(v)] λ[1:length(barequations)]
+L = sum((xvarz .- u).^2) + λ'*barequations
+dL = differentiate(L, vcat(xvarz, λ))
+dgL = differentiate(dL, vcat(xvarz, λ))
+λ0 = randn(Float64, length(λ))
+global cursol = vcat(toArray(p0), λ0)
+while norm(evaluate(dL, vcat(xvarz,λ,u)=>vcat(cursol,toArray(p0))))>1e-12
+    global cursol = cursol - pinv(real.(evaluate(dgL, vcat(xvarz,λ,u)=>vcat(cursol,toArray(p0)))))*real.(evaluate(dL, vcat(xvarz,λ,u)=>vcat(cursol,toArray(p0))))
+end
+
+
+for t in 0.01:0.01:2.5
+    q = toArray(p0)+t*v
+    global cursol = cursol .- pinv(real.(evaluate.(dgL, vcat(xvarz,λ,u)=>vcat(cursol,toArray(p0)+(t-0.01)*v)))) * real.(evaluate.(differentiate(dL,u), vcat(xvarz,λ,u)=>vcat(cursol,toArray(p0)+(t-0.01)*v))) * (0.05*v)
+    while norm(evaluate(dL, vcat(xvarz,λ,u)=>vcat(cursol,q)))>1e-10
+        global cursol = cursol - pinv(real.(evaluate(dgL, vcat(xvarz,λ,u)=>vcat(cursol,q))))*real.(evaluate(dL, vcat(xvarz,λ,u)=>vcat(cursol,q)))
+    end
+    push!(solutionarray1, cursol[1:length(xvarz)])
+end
+
+global cursol = vcat(toArray(p0), λ0)
+while norm(evaluate(dL, vcat(xvarz,λ,u)=>vcat(cursol,toArray(p0))))>1e-12
+    global cursol = cursol - pinv(real.(evaluate(dgL, vcat(xvarz,λ,u)=>vcat(cursol,toArray(p0)))))*real.(evaluate(dL, vcat(xvarz,λ,u)=>vcat(cursol,toArray(p0))))
+end
+for t in 0.01:0.01:2.5
+    q = toArray(p0)-t*v
+    global cursol = cursol .- pinv(real.(evaluate.(dgL, vcat(xvarz,λ,u)=>vcat(cursol,toArray(p0)+(t-0.01)*v)))) * real.(evaluate.(differentiate(dL,u), vcat(xvarz,λ,u)=>vcat(cursol,toArray(p0)+(t-0.01)*v))) * (0.05*v)
+    while norm(evaluate(dL, vcat(xvarz,λ,u)=>vcat(cursol,q)))>1e-10
+        global cursol = cursol - pinv(real.(evaluate(dgL, vcat(xvarz,λ,u)=>vcat(cursol,q))))*real.(evaluate(dL, vcat(xvarz,λ,u)=>vcat(cursol,q)))
+    end
+    push!(solutionarray2, cursol[1:length(xvarz)])
+end
+
+for el in vcat(solutionarray2[end:-1:1], solutionarray1)
+    push!(solutioncurve, toMatrix(el[1:length(xvarz)], p0))
+end
+
+triangs = [ (1,2,3), (6,3,2), (6,4,5),  (1,3,4), (6,4,3), (1,2,5), (6,5,2), (1,4,5)]
+for index in 1:length(solutioncurve)
+    open("BricardOctahedron/deformation$(index).poly", "w") do f
+        write(f, "POINTS\n")
+        foreach(i->write(f, string("$(i): ", solutioncurve[index][1,i], " ", solutioncurve[index][2,i], " ", solutioncurve[index][3,i],"\n")), 1:size(solutioncurve[index])[2])
+        write(f,"POLYS\n")
+        for i in 1:length(triangs)
+            write(f, string("$(i): "))
+            for j in 1:length(triangs[i])-1
+                write(f, "$(triangs[i][j]) ")
+            end
+            write(f, "$(triangs[i][end]) <\n")
+        end
+        write(f,"END")
+    end
+end
+

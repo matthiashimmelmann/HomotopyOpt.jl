@@ -443,7 +443,7 @@ function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
         push!(Ts, Tq)
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
         push!(ns, norm(vq1))
-		#println("ns: ", ns[end])
+		println("ns: ", ns[end])
 		push!(vs, vq2)
 		length(vs)>3 ? deleteat!(vs, 1) : nothing
         # The next (initial) stepsize is determined by the previous step and how much the energy function changed - in accordance with RieOpt.
@@ -478,7 +478,7 @@ end
 function findminima(p0, tolerance,
                 G::ConstraintVariety,
                 objectiveFunction::Function;
-                maxlocalsteps=1, ε0=0.1, whichstep="Algorithm 0", stepdirection = "gradientdescent", maxseconds=1000, initialtime=Base.time())
+                maxlocalsteps=1, ε0=0.1, whichstep="Algorithm 0", stepdirection = "gradientdescent", maxseconds=1000, initialtime=Base.time(), kwargs...)
 	#TODO Rework minimality: We are not necessarily at a minimality, if resolveSingularity does not find any better point. => first setequations, then ismin
 	#setEquationsAtp!(G,p0)
     p = copy(p0) # initialize before updating `p` below
