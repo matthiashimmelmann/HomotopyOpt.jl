@@ -137,18 +137,19 @@ end
 function EDStep(ConstraintVariety, p, v; homotopyMethod, tol=1e-10, amount_Euler_steps=0, maxtime=10)
     initialtime = Base.time()
     Basenormal, _, basegradient = get_NTv(p, ConstraintVariety, v)
-    q0 = p+1e-3*Basenormal[:,1]
+    q0 = p+1e-2*Basenormal[:,1]
     start_parameters!(ConstraintVariety.EDTracker.tracker, q0)
     A = evaluate.(differentiate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(p)+1:end]), ConstraintVariety.variables => p)
     λ0 = A\-evaluate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, vcat(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(p, [0 for _ in length(p)+1:length(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables)], q0))
-    setStartSolution(ConstraintVariety.EDTracker, vcat(p, λ0))
+    #setStartSolution(ConstraintVariety.EDTracker, vcat(p, λ0))
+    setStartSolution(ConstraintVariety.EDTracker, vcat(p, [0. for _ in λ0]))
 
-	if homotopyMethod=="HomotopyContinuation"
+    if homotopyMethod=="HomotopyContinuation"
         q = p+v
 		target_parameters!(ConstraintVariety.EDTracker.tracker, q)
 		tracker = track(ConstraintVariety.EDTracker.tracker, ConstraintVariety.EDTracker.startSolution)
 		result = solution(tracker)
-		if all(entry->Base.abs(entry.im)<1e-6, result)
+		if all(entry->Base.abs(entry.im)<1e-3, result)
 			return [entry.re for entry in result[1:length(p)]]
 		else
 			throw(error("Complex Space entered!"))
