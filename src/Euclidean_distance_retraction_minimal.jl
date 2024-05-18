@@ -66,7 +66,7 @@ mutable struct ConstraintVariety
 
         @var u[1:N]
 		@var λ[1:length(eqnz)]
-		Lagrange = sum((varz-u).^2) + sum(λ.*eqnz)
+		Lagrange = 0.5*sum((varz-u).^2) + sum(λ.*eqnz)
 		∇Lagrange = differentiate(Lagrange, vcat(varz,λ))
 		EDSystem = System(∇Lagrange, variables=vcat(varz,λ), parameters=u)
 		p0 = randn(Float64, N)
@@ -123,7 +123,7 @@ end
 #=
  We predict in the projected gradient direction and correct by using the Gauss-Newton method
 =#
-function gaussnewtonstep(equations, jacobian, vars, p; tol=1e-12, initialtime=Base.time(), maxtime=10, maxsteps=2)
+function gaussnewtonstep(equations, jacobian, vars, p; tol=1e-12, initialtime=Base.time(), maxtime=10, maxsteps=2, factor=1)
 	global q = p
     global iter = 1
 	while norm(evaluate.(equations, vars=>q)) > tol && iter <= maxsteps
@@ -131,54 +131,61 @@ function gaussnewtonstep(equations, jacobian, vars, p; tol=1e-12, initialtime=Ba
             break
         end
 		J = Matrix{Float64}(evaluate.(jacobian, vars=>q))
-		global q = q .- (J') \ evaluate.(equations, vars=>q)
+		global q = q .- (factor .* J') \ evaluate.(equations, vars=>q)
         global iter += 1
 	end
 	return q
 end
 
-function EDStep(ConstraintVariety, p, v; homotopyMethod, tol=1e-10, amount_Euler_steps=0, maxtime=10)
+function EDStep(G::ConstraintVariety, p, v; homotopyMethod, tol=1e-10, amount_Euler_steps=0, maxtime=10)
     initialtime = Base.time()
-    Basenormal, _, basegradient = get_NTv(p, ConstraintVariety, v)
-    q0 = p+1e-2*Basenormal[:,1]
-    start_parameters!(ConstraintVariety.EDTracker.tracker, q0)
-    A = evaluate.(differentiate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(p)+1:end]), ConstraintVariety.variables => p)
-    λ0 = A\-evaluate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, vcat(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(p, [0 for _ in length(p)+1:length(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables)], q0))
-    setStartSolution(ConstraintVariety.EDTracker, vcat(p, λ0))
-    #setStartSolution(ConstraintVariety.EDTracker, vcat(p, [0. for _ in λ0]))
+    Basenormal, _, basegradient = get_NTv(p, G, v)
+    q0 = p#+1e-3*Basenormal[:,1]
+    start_parameters!(G.EDTracker.tracker, q0)
+    #A = evaluate.(differentiate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables[length(p)+1:end]), ConstraintVariety.variables => p)
+    #λ0 = A\-evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, vcat(G.EDTracker.tracker.homotopy.F.interpreted.system.variables, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(p, [0 for _ in length(p)+1:length(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables)], q0))
+    #setStartSolution(G.EDTracker, vcat(p, λ0))
+    setStartSolution(G.EDTracker, vcat(p, [0. for _ in G.equations]))
 
     if homotopyMethod=="HomotopyContinuation"
         q = p+v
-		target_parameters!(ConstraintVariety.EDTracker.tracker, q)
-		tracker = track(ConstraintVariety.EDTracker.tracker, ConstraintVariety.EDTracker.startSolution)
+		target_parameters!(G.EDTracker.tracker, q)
+		tracker = track(G.EDTracker.tracker, G.EDTracker.startSolution)
 		result = solution(tracker)
-		if all(entry->Base.abs(entry.im)<1e-3, result)
+		if all(entry->Base.abs(entry.im)<1e-4, result)
 			return [entry.re for entry in result[1:length(p)]]
 		else
 			throw(error("Complex Space entered!"))
 		end
 	else
-        currentSolution = ConstraintVariety.EDTracker.startSolution
-        vars = ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
-        q = p+(1/(amount_Euler_steps+1))*v
-        #currentSolution[1:length(q)] = q
-        equations = evaluate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
-        currentSolution = currentSolution .+ EulerStep(ConstraintVariety.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1))
-        currentSolution = gaussnewtonstep(equations, ConstraintVariety.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime, maxsteps = amount_Euler_steps==0 ? 100 : 2)     
+        currentSolution = G.EDTracker.startSolution
+        vars = G.EDTracker.tracker.homotopy.F.interpreted.system.variables
+        if amount_Euler_steps!=-1
+            q = p+(1/(amount_Euler_steps+1))*v
+            equations = evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
+            currentSolution = currentSolution .+ EulerStep(G.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1); trivial=true)
+        else
+            q = p+v
+            equations = evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
+        end
+        currentSolution = gaussnewtonstep(equations, G.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime, maxsteps = amount_Euler_steps<=0 ? 100 : 2)     
 
         for step in 1:amount_Euler_steps
             q = p+((step+1)/(amount_Euler_steps+1))*v
             #prev_sol = currentSolution
-            currentSolution = currentSolution .+ EulerStep(ConstraintVariety.EDTracker, currentSolution, p, v, step/(amount_Euler_steps+1), 1/(amount_Euler_steps+1))
-            equations = evaluate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
-            currentSolution = gaussnewtonstep(equations, ConstraintVariety.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime, maxsteps = amount_Euler_steps==step ? 100 : 2)            
+            currentSolution = currentSolution .+ EulerStep(G.EDTracker, currentSolution, p, v, step/(amount_Euler_steps+1), 1/(amount_Euler_steps+1); trivial=false)
+            equations = evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
+            currentSolution = gaussnewtonstep(equations, G.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime, maxsteps = amount_Euler_steps==step ? 100 : 2)            
         end
         #println(norm(prev_sol-currentSolution), " ", norm(prediction-currentSolution))
         return currentSolution[1:length(q)]
 	end
 end
 
-function EulerStep(EDTracker, q, p, v, prev_step, step_size)
+function EulerStep(EDTracker::TrackerWithStartSolution, q, p, v, prev_step, step_size; trivial=false)
+    if trivial
+        return vcat(v*step_size, [0. for _ in 1:(length(EDTracker.tracker.homotopy.F.interpreted.system.variables)-length(p))])
+    end
     dz = -evaluate.(EDTracker.jacobian, vcat(EDTracker.tracker.homotopy.F.interpreted.system.variables, EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(q, p+prev_step*v))
     du = evaluate.(EDTracker.jacobian_parameter, vcat(EDTracker.tracker.homotopy.F.interpreted.system.variables, EDTracker.ptv) => vcat(q, v))
     return dz \ (du*step_size)

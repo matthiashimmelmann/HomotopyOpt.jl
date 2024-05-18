@@ -10,17 +10,17 @@ p, v = [-2,5], 6/4 .* [1,-4]
 G = Euclidean_distance_retraction_minimal.ConstraintVariety([x,y], eqnz, 2, 1)
 EDStep = i->Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="gaussnewton", amount_Euler_steps=i)
 
-global index = 0
+global index = -1
 m = []
 while index <= 5
-    println("$(index) Euler Steps")
-    display(median(@benchmark EDStep(index)))
+    index!=-1 ? println("$(index) nontrivial Euler Steps") : println("Only Newton's method")
+    @btime EDStep(index)
     println("Solution: ", EDStep(index))
     global index = index+1
     println("")
 end
 println("HC.jl")
-display(median(@benchmark(Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))))
+@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
 println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
 
 println("\n")
@@ -34,9 +34,9 @@ v = 2 .* v ./ v[1]
 EDStep = i->Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="gaussnewton", amount_Euler_steps=i)
 #display(rank(evaluate(G.EDTracker.jacobian, G.EDTracker.tracker.homotopy.F.interpreted.system.variables=>vcat(p,0))))
 
-global index = 0
+global index = -1
 while index <= 5
-    println("$(index) Euler Steps")
+    index!=-1 ? println("$(index) nontrivial Euler Steps") : println("Only Newton's method")
     @btime EDStep(index)
     println("Solution: ", EDStep(index))
     global index = index+1
@@ -53,28 +53,32 @@ println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homo
 
 println("\n")
 printstyled("Stiefel Manifold Test\n", color=:green)
-
 n = (5,5)
 @var x[1:n[1],1:n[2]]
 f3 = vcat(x*x' - LinearAlgebra.Diagonal([1 for _ in 1:n[1]])...)
+f3 = rand(Float64, n[1]*n[2], Int(n[1]*(n[1]+1)/2))'*f3
 xvarz = vcat([x[i,j] for i in 1:n[1], j in 1:n[2]]...)
 global G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz, f3, n[1]*n[2], n[1]*n[2]-Int(n[1]*(n[1]+1)/2))
-p = vcat([LinearAlgebra.Diagonal([1 for _ in 1:n[1]])[i,j] for i in 1:n[1], j in 1:n[2]]...) + 0.001*randn(Float64,length(xvarz))
+p = filter(t -> norm(t)<100, [Euclidean_distance_retraction_minimal.gaussnewtonstep(f3, differentiate(f3,xvarz)', xvarz, 2 .* (rand(Float64,length(xvarz)) .- 0.5); tol=1e-14, factor=0.1) for _ in 1:15])[1]
 nlp = nullspace(evaluate(differentiate(f3, xvarz), xvarz=>p))
 global v = real.(nlp[:,1] ./ (norm(nlp[:,1])))
 EDStep = i->Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="gaussnewton", amount_Euler_steps=i)
 
-global index = 0
+global index = -1
 while index <= 5
-    println("$(index) Euler Steps")
+    index!=-1 ? println("$(index) nontrivial Euler Steps") : println("Only Newton's method")
     @btime EDStep(index)
-    println("Solution: ", EDStep(index))
+    local sol = EDStep(index)
+    display(norm(nullspace(evaluate(differentiate(f3,xvarz), xvarz=>sol))'*((p+v)-sol)))
+    println("Solution: ", sol)
     global index = index+1
     println("")
 end
 println("HC.jl")
 @btime(Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
-println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
+sol = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
+println("Solution: ", sol)
+display(norm(nullspace(evaluate(differentiate(f3,xvarz), xvarz=>sol))'*((p+v)-sol)))
 
 
 
@@ -105,15 +109,18 @@ global v = 2.5 .* real.(nlp[:,1] ./ (norm(nlp[:,1])*nlp[1,1]))
 G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz, barequations, 9, 1)
 EDStep = i->Euclidean_distance_retraction_minimal.EDStep(G, cursol, v; homotopyMethod="gaussnewton", amount_Euler_steps=i)
 
-global index = 0
+global index = -1
 while index <= 5
-    println("$(index) Euler Steps")
+    index!=-1 ? println("$(index) nontrivial Euler Steps") : println("Only Newton's method")
     @btime EDStep(index)
-    println("Solution: ", EDStep(index))
+    sol = EDStep(index)
+    println("Solution: ", sol)
+    display(norm(nullspace(evaluate(differentiate(barequations,xvarz), xvarz=>sol))'*((cursol+v)-sol)))
     global index = index+1
     println("")
 end
 println("HC.jl")
 @btime(Euclidean_distance_retraction_minimal.EDStep(G, cursol, v; homotopyMethod="HomotopyContinuation"))
-println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, cursol, v; homotopyMethod="HomotopyContinuation"))
-
+sol = Euclidean_distance_retraction_minimal.EDStep(G, cursol, v; homotopyMethod="HomotopyContinuation")
+println("Solution: ", )
+display(norm(nullspace(evaluate(differentiate(barequations,xvarz), xvarz=>sol))'*((cursol+v)-sol)))
