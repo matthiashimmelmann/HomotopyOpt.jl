@@ -69,7 +69,7 @@ while index <= 5
     index!=-1 ? println("$(index) nontrivial Euler Steps") : println("Only Newton's method")
     @btime EDStep(index)
     local sol = EDStep(index)
-    println("Norm of the product T_pM * (p+v-R_p(v))", norm(nullspace(evaluate(differentiate(barequations,xvarz), xvarz=>sol))'*((p+v)-sol)))
+    println("Norm of the product T_pM * (p+v-R_p(v))", norm(nullspace(evaluate(differentiate(f3,xvarz), xvarz=>sol))'*((p+v)-sol)))
     println("Solution: ", sol)
     global index = index+1
     println("")
@@ -78,7 +78,7 @@ println("HC.jl")
 @btime(Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
 sol = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
 println("Solution: ", sol)
-println("Norm of the product T_pM * (p+v-R_p(v))", norm(nullspace(evaluate(differentiate(barequations,xvarz), xvarz=>sol))'*((p+v)-sol)))
+println("Norm of the product T_pM * (p+v-R_p(v))", norm(nullspace(evaluate(differentiate(f3,xvarz), xvarz=>sol))'*((p+v)-sol)))
 
 
 
