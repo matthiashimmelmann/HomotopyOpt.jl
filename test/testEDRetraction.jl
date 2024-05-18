@@ -69,7 +69,7 @@ while index <= 5
     index!=-1 ? println("$(index) nontrivial Euler Steps") : println("Only Newton's method")
     @btime EDStep(index)
     local sol = EDStep(index)
-    display(norm(nullspace(evaluate(differentiate(f3,xvarz), xvarz=>sol))'*((p+v)-sol)))
+    println("Norm of the product T_pM * (p+v-R_p(v))", norm(nullspace(evaluate(differentiate(barequations,xvarz), xvarz=>sol))'*((p+v)-sol)))
     println("Solution: ", sol)
     global index = index+1
     println("")
@@ -78,7 +78,7 @@ println("HC.jl")
 @btime(Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
 sol = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
 println("Solution: ", sol)
-display(norm(nullspace(evaluate(differentiate(f3,xvarz), xvarz=>sol))'*((p+v)-sol)))
+println("Norm of the product T_pM * (p+v-R_p(v))", norm(nullspace(evaluate(differentiate(barequations,xvarz), xvarz=>sol))'*((p+v)-sol)))
 
 
 
@@ -103,11 +103,11 @@ xs[:,4:6] = x[:,4:6]
 xvarz = vcat([x[i,j] for i in 1:3, j in 4:6]...)
 barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar[2]]).^2) for bar in edges]
 barequations = Vector{Expression}(rand(Float64,8,9)*barequations)
-global cursol = toArray(p0)#+0.05*rand(Float64,9)
-nlp = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>cursol))
-global v = 2.5 .* real.(nlp[:,1] ./ (norm(nlp[:,1])*nlp[1,1]))
+p = toArray(p0)#+0.05*rand(Float64,9)
+nlp = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
+v = 2.5 .* real.(nlp[:,1] ./ (norm(nlp[:,1])*nlp[1,1]))
 G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz, barequations, 9, 1)
-EDStep = i->Euclidean_distance_retraction_minimal.EDStep(G, cursol, v; homotopyMethod="gaussnewton", amount_Euler_steps=i)
+EDStep = i->Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="gaussnewton", amount_Euler_steps=i)
 
 global index = -1
 while index <= 5
@@ -115,12 +115,12 @@ while index <= 5
     @btime EDStep(index)
     sol = EDStep(index)
     println("Solution: ", sol)
-    display(norm(nullspace(evaluate(differentiate(barequations,xvarz), xvarz=>sol))'*((cursol+v)-sol)))
+    println("Norm of the product T_pM * (p+v-R_p(v))", norm(nullspace(evaluate(differentiate(barequations,xvarz), xvarz=>sol))'*((p+v)-sol)))
     global index = index+1
     println("")
 end
 println("HC.jl")
-@btime(Euclidean_distance_retraction_minimal.EDStep(G, cursol, v; homotopyMethod="HomotopyContinuation"))
-sol = Euclidean_distance_retraction_minimal.EDStep(G, cursol, v; homotopyMethod="HomotopyContinuation")
-println("Solution: ", )
-display(norm(nullspace(evaluate(differentiate(barequations,xvarz), xvarz=>sol))'*((cursol+v)-sol)))
+@btime(Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
+sol = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
+println("Solution: ", sol)
+println("Norm of the product T_pM * (p+v-R_p(v))", norm(nullspace(evaluate(differentiate(barequations,xvarz), xvarz=>sol))'*((p+v)-sol)))
