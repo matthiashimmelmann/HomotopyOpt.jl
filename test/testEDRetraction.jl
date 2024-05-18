@@ -53,7 +53,7 @@ println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homo
 
 println("\n")
 printstyled("Stiefel Manifold Test\n", color=:green)
-n = (5,5)
+n = (6,6)
 @var x[1:n[1],1:n[2]]
 f3 = vcat(x*x' - LinearAlgebra.Diagonal([1 for _ in 1:n[1]])...)
 f3 = rand(Float64, n[1]*n[2], Int(n[1]*(n[1]+1)/2))'*f3
@@ -124,3 +124,12 @@ println("HC.jl")
 sol = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
 println("Solution: ", sol)
 println("Norm of the product T_pM * (p+v-R_p(v)): ", norm(nullspace(evaluate(differentiate(barequations,xvarz), xvarz=>sol))'*((p+v)-sol)))
+
+
+
+
+
+println("\n")
+printstyled("Fisher retraction test\n", color=:green)
+@var prob[1:50]
+equations = [sum(prob[1:50]-1)]
