@@ -5,7 +5,6 @@ Random.seed!(1235);
 testDict = Dict()
 max_indices = 4
 
-#=
 
 printstyled("Double Parabola Test\n", color=:green)
 @var x y
@@ -206,7 +205,7 @@ for n in [(4,7),(5,7),(6,7),(7,7)]
                     push!(linear_steps, EDStep(index,method)[2])
                 end
                 #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
-                println("Solution: ", EDStep(index,method)[1])
+                #println("Solution: ", EDStep(index,method)[1])
                 global index = index+1
                 if !isapprox(norm(EDStep(index,method)[1] .- R_pV), 0; atol=1e-6)
                     push!(testDict["Stiefel$(n)"][euler_array[euler]], ("ERROR", "ERROR", "ERROR"))
@@ -222,8 +221,6 @@ for n in [(4,7),(5,7),(6,7),(7,7)]
     end
     display(testDict)
 end
-
-
 
 
 println("\n")
@@ -282,7 +279,8 @@ println("Average Linear Steps: ", )
 testDict["Octahedron"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps))]
 display(testDict)
 
-=#
+
+
 
 
 println("\n")
@@ -395,13 +393,16 @@ end
 for i in 1:size(p0)[2]
     scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
 end
-savefig(plt, "GilbertGraphTest.png")
+#savefig(plt, "GilbertGraphTest.png")
 
 barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar[2]]).^2) for bar in edges]
 dg = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
-barequations = rand(Float64,num_points*2-4,length(barequations))*barequations
-v = 0.25*Vector{Float64}(dg[:,1])
+#barequations = rand(Float64,num_points*2-4,length(barequations))*barequations
+v = 2*Vector{Float64}(dg[:,1])
 G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz,barequations,num_points*2-3,1)
+#=F = System(barequations, variables=xvarz)
+display(F)
+Euclidean_distance_retraction_minimal.HCnewtonstep(F,p)=#
 EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="gaussnewton", euler_step=euler_step, amount_Euler_steps=i)
 #display(rank(evaluate(G.EDTracker.jacobian, G.EDTracker.tracker.homotopy.F.interpreted.system.variables=>vcat(p,0))))
 euler_array = ["newton", "explicit"]
@@ -420,23 +421,29 @@ for euler in 1:length(euler_array)
                 push!(linear_steps, EDStep(index,method)[2])
             end
             #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
-            println("Solution: ", EDStep(index,method)[1])
+            #println("Solution: ", EDStep(index,method)[1])
+            println(p)
             global index = index+1
             push!(testDict["GilbertGraph"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
-            q = toMatrix(p0, EDStep(index,method)[1])
+            if index < max_indices-1
+                continue
+            end
+            q = evaluate.(xs, xvarz=>EDStep(index,method)[1])
             for edge in edges
                 plot!(plt, [q[1,edge[1]], q[1,edge[2]]], [q[2,edge[1]], q[2,edge[2]]], arrow=false, color=:lightgrey, linewidth=4, label="")
             end
             for i in 1:size(q)[2]
-                plot!(plt, [p0[1,i], p0[1,i]], [p0[2,i], p0[2,i]], arrow=true, color=:green3, linewidth=4, label="")
+                plot!(plt, [p0[1,i], q[1,i]], [p0[2,i], q[2,i]], arrow=true, color=:green3, linewidth=4, label="")
             end
             for edge in edges
                 plot!(plt, [p0[1,edge[1]], p0[1,edge[2]]], [p0[2,edge[1]], p0[2,edge[2]]], arrow=false, color=:steelblue, linewidth=4, label="")
             end
             for i in 1:size(p0)[2]
                 scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
-            end            
-            savefig(plt, "GilbertGraphTest2.png")
+            end
+            display(p0)
+            display(q)
+            #savefig(plt, "GilbertGraphTest2.png")
         catch e
             display(e)
             push!(testDict["GilbertGraph"][euler_array[euler]], ("ERROR", "ERROR", "ERROR"))
@@ -451,9 +458,9 @@ println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homo
 linear_steps = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[2]
 println("Average Linear Steps: ", )
 if !isapprox(norm(Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[1]-R_pV), 0)
-    testDict["DoubleParabola"]["HC.jl"] = [("ERROR", "ERROR", "ERROR")]
+    testDict["GilbertGraph"]["HC.jl"] = [("ERROR", "ERROR", "ERROR")]
 else
-    testDict["DoubleParabola"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps))]
+    testDict["GilbertGraph"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps))]
 end
 display(testDict)
 

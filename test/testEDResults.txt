@@ -1,2 +1,112 @@
-GilbertGraph
+Stiefel(6, 7)
+explicit
+1: 523.5873ms, 24545.264kb, 5.0 linear solves
+2: 1413.6959ms, 41460.224kb, 8.0 linear solves
+3: 1872.0222ms, 63077.28kb, 12.0 linear solves
+4: 2235.2133ms, 79992.24kb, 15.0 linear solves
+5: 2947.68035ms, 101609.296kb, 19.0 linear solves
+HC.jl
+1: 69.51365ms, 809.12kb, 97.0 linear solves
+newton
+1: 890.52435ms, 29244.784kb, 6.0 linear solves
+2: 1560.1462ms, 48297.248kb, 10.0 linear solves
+3: 2099.3846ms, 72051.808kb, 15.0 linear solves
+4: 2228.3196ms, 76997.984kb, 16.0 linear solves
+5: 2860.31195ms, 96050.448kb, 20.0 linear solves
+
+Sextic
+explicit
+1: ERRORms, ERRORkb, ERROR linear solves
+2: 2.8301ms, 61.92kb, 9.0 linear solves
+3: 2.9415ms, 83.144kb, 12.0 linear solves
+4: ERRORms, ERRORkb, ERROR linear solves
+5: 4.73945ms, 135.752kb, 20.0 linear solves
+HC.jl
+1: 0.1234ms, 4.648kb, 25.0 linear solves
+newton
+1: 2.3229ms, 59.912kb, 10.0 linear solves
+2: 2.9662ms, 74.36kb, 12.0 linear solves
+3: 3.6787ms, 93.888kb, 15.0 linear solves
+4: ERRORms, ERRORkb, ERROR linear solves
+5: 6.1081ms, 153.264kb, 25.0 linear solves
+
+DoubleParabola
+explicit
+1: ERRORms, ERRORkb, ERROR linear solves
+2: 1.33025ms, 72.928kb, 12.0 linear solves
+3: 1.719ms, 92.872kb, 15.0 linear solves
+4: 2.0536ms, 108.072kb, 17.0 linear solves
+5: 2.6249ms, 132.76kb, 21.0 linear solves
+HC.jl
+1: 0.0856ms, 5.088kb, 20.0 linear solves
+newton
+1: ERRORms, ERRORkb, ERROR linear solves
+2: 1.5422ms, 79.52kb, 14.0 linear solves
+3: 2.1411ms, 102.416kb, 18.0 linear solves
+4: 2.583ms, 120.568kb, 21.0 linear solves
+5: 3.1455ms, 143.464kb, 25.0 linear solves
+
+Stiefel(7, 7)
+explicit
+1: 857.894ms, 35213.904kb, 4.0 linear solves
+2: 2658.7969ms, 73537.808kb, 8.0 linear solves
+3: 3809.84555ms, 111861.712kb, 12.0 linear solves
+4: 4616.9617ms, 141824.56kb, 15.0 linear solves
+5: 5617.7334ms, 180148.464kb, 19.0 linear solves
+HC.jl
+1: 142.812ms, 1388.752kb, 121.0 linear solves
+newton
+1: 1449.97885ms, 43572.08kb, 5.0 linear solves
+2: 2913.5759ms, 85779.184kb, 10.0 linear solves
+3: 5051.8206ms, 127986.288kb, 15.0 linear solves
+4: 4381.30555ms, 136749.168kb, 16.0 linear solves
+5: 5407.507ms, 170595.216kb, 20.0 linear solves
+
+Octahedron
+explicit
+1: 33.4213ms, 1120.272kb, 8.0 linear solves
+2: 37.9542ms, 1312.176kb, 9.0 linear solves
+3: 50.5351ms, 1769.04kb, 12.0 linear solves
+4: 74.6367ms, 2490.864kb, 17.0 linear solves
+5: 91.1858ms, 3212.688kb, 22.0 linear solves
+HC.jl
+1: 2.991ms, 36.784kb, 84.0 linear solves
+newton
+1: 40.3762ms, 1383.792kb, 10.0 linear solves
+2: 65.28585ms, 2201.088kb, 16.0 linear solves
+3: 68.7285ms, 2091.024kb, 15.0 linear solves
+4: 85.25605ms, 2775.84kb, 20.0 linear solves
+5: 102.4958ms, 3328.176kb, 24.0 linear solves
+
+Stiefel(5, 7)
+explicit
+1: 250.0175ms, 10315.456kb, 4.0 linear solves
+2: 604.82415ms, 21554.08kb, 8.0 linear solves
+3: 957.9689ms, 32792.704kb, 12.0 linear solves
+4: 1492.8875ms, 41592.208kb, 15.0 linear solves
+5: 1689.1222ms, 52830.832kb, 19.0 linear solves
+HC.jl
+1: 31.4383ms, 434.928kb, 82.0 linear solves
+newton
+1: 271.4149ms, 12752.272kb, 5.0 linear solves
+2: 644.7907ms, 25086.976kb, 10.0 linear solves
+3: 1306.4165ms, 37421.68kb, 15.0 linear solves
+4: 1424.1709ms, 39999.904kb, 16.0 linear solves
+5: 1670.95555ms, 49895.488kb, 20.0 linear solves
+
+Stiefel(4, 7)
+explicit
+1: 139.7558ms, 5931.296kb, 5.0 linear solves
+2: 222.348ms, 10017.984kb, 8.0 linear solves
+3: 343.7771ms, 15236.16kb, 12.0 linear solves
+4: 428.0424ms, 19322.848kb, 15.0 linear solves
+5: 563.0441ms, 24541.024kb, 19.0 linear solves
+HC.jl
+1: 15.4527ms, 216.0kb, 79.0 linear solves
+newton
+1: 154.6694ms, 7060.816kb, 6.0 linear solves
+2: 257.84295ms, 11660.144kb, 10.0 linear solves
+3: 393.772ms, 17390.96kb, 15.0 linear solves
+4: 490.5464ms, 18595.824kb, 16.0 linear solves
+5: 509.2727ms, 23195.152kb, 20.0 linear solves
 

@@ -119,7 +119,14 @@ function setEquationsAtp!(G::ConstraintVariety, p; tol=1e-5)
 	setfield!(G, :dimensionofvariety, (G.ambientdimension-jacobianRank))
 end
 
-
+function HCnewtonstep(System, p; tol=1e-14, initialtime=Base.time(), maxtime=50, maxsteps=2, factor=1)
+    display(p)
+    res = HomotopyContinuation.newton(
+        System,
+        p
+    )
+    display(res)
+end
 #=
  We predict in the projected gradient direction and correct by using the Gauss-Newton method
 =#
@@ -137,7 +144,7 @@ function gaussnewtonstep(equations, jacobian, vars, p; tol=1e-14, initialtime=Ba
 	return q, iter
 end
 
-function EDStep(G::ConstraintVariety, p, v; homotopyMethod, tol=1e-10, euler_step="explicit", amount_Euler_steps=0, maxtime=20)
+function EDStep(G::ConstraintVariety, p, v; homotopyMethod, tol=1e-10, euler_step="explicit", amount_Euler_steps=0, maxtime=100)
     initialtime = Base.time()
     Basenormal, _, basegradient = get_NTv(p, G, v)
     q0 = p#+1e-3*Basenormal[:,1]
@@ -175,7 +182,7 @@ function EDStep(G::ConstraintVariety, p, v; homotopyMethod, tol=1e-10, euler_ste
             q = p+v
             equations = evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
         end
-        global currentSolution, gaussnewtonsolves = gaussnewtonstep(equations, G.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime, maxsteps = amount_Euler_steps<=0 ? 250 : (euler_step=="newton" ? 4 : 2))    
+        global currentSolution, gaussnewtonsolves = gaussnewtonstep(equations, G.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime, maxsteps = amount_Euler_steps<=0 ? 250 : (euler_step=="newton" ? 3 : 2))    
         global linear_solves = linear_solves + gaussnewtonsolves
         for step in 1:amount_Euler_steps
             q = p+((step+1)/(amount_Euler_steps+1))*v
@@ -192,7 +199,7 @@ function EDStep(G::ConstraintVariety, p, v; homotopyMethod, tol=1e-10, euler_ste
                 global linear_solves = linear_solves+1
             end
             equations = evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
-            global currentSolution, gaussnewtonsolves = gaussnewtonstep(equations, G.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime, maxsteps = amount_Euler_steps==step ? 250 : (euler_step=="newton" ? 4 : 2))            
+            global currentSolution, gaussnewtonsolves = gaussnewtonstep(equations, G.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime, maxsteps = amount_Euler_steps==step ? 250 : (euler_step=="newton" ? 3 : 2))            
             global linear_solves = linear_solves + gaussnewtonsolves
         end
         #println(norm(prev_sol-currentSolution), " ", norm(prediction-currentSolution))
