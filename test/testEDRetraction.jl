@@ -1,7 +1,7 @@
 include("../src/Euclidean_distance_retraction_minimal.jl")
 using HomotopyContinuation, LinearAlgebra, Random, BenchmarkTools, Plots, ImplicitPlots
 
-Random.seed!(1234);
+Random.seed!(1235);
 testDict = Dict()
 max_indices = 4
 
@@ -287,7 +287,6 @@ display(testDict)
 
 println("\n")
 printstyled("Gilbert Graph test\n", color=:green)
-@var x[1:2, 1:20]
 testDict["GilbertGraph"] = Dict()
 
 function create_rigidity_matrix(p0,edges; torus=false)
@@ -355,7 +354,7 @@ function poisson_point_process(; r_fast_search_coefficient = 0.33, r_search_coef
         global vxlist, edge_list = [i for i in 1:n_poiss], Base.copy(edges)
         global independent_edges = find_independent_edges(vxlist,edge_list,p0)
         display(independent_edges)
-        deleteat!(edge_list, findfirst(t->(independent_edges[1])==t, edge_list))
+        deleteat!(edge_list, findfirst(t->(independent_edges[end-1])==t, edge_list))
 
         display(rank(create_rigidity_matrix(p0,edges)) - (size(p0)[1]*size(p0)[2]-3))
         display(rank(create_rigidity_matrix(p0,edge_list)) - (size(p0)[1]*size(p0)[2]-3))
@@ -365,8 +364,22 @@ function poisson_point_process(; r_fast_search_coefficient = 0.33, r_search_coef
     return p0', edge_list
 end
 
-num_points = 15
+function toMatrix(p0, conf)
+    q = zeros(Float64,(2,size(p0)[2]))
+    q[:,1] = p0[:,1]
+    q[1,2] = p0[1,2]
+    q[2,2] = conf[1]
+    count = 2
+    for i in 1:2, j in 3:num_points
+        q[i,j] = conf[count]
+        count = count+1
+    end
+    return q
+end
+
+num_points = 27
 p0, edges = poisson_point_process(; num_points=num_points)
+@var x[1:2, 1:num_points]
 
 xs = zeros(HomotopyContinuation.Expression,(2,num_points))
 xs[:,1] = p0[:,1]
@@ -375,22 +388,23 @@ xs[2,2] = x[2,2]
 xs[:,3:num_points] = x[:,3:num_points]
 xvarz = vcat(x[2,2], vcat([x[i,j] for i in 1:2, j in 3:num_points]...))
 p = vcat(p0[2,2], vcat([p0[i,j] for i in 1:2, j in 3:num_points]...))
+plt = plot([], []; xlims=(-sqrt(num_points)/1.95,sqrt(num_points)/1.95), ylims=(-sqrt(num_points)/1.95,sqrt(num_points)/1.95), linewidth=4, color=:steelblue, grid=false, label="", size=(800,800), tickfontsize=16)
+for edge in edges
+    plot!(plt, [p0[1,edge[1]], p0[1,edge[2]]], [p0[2,edge[1]], p0[2,edge[2]]], arrow=false, color=:steelblue, linewidth=4, label="")
+end
+for i in 1:size(p0)[2]
+    scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
+end
+savefig(plt, "GilbertGraphTest.png")
+
 barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar[2]]).^2) for bar in edges]
 dg = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
-v = Vector{Float64}(dg[:,1])
+barequations = rand(Float64,num_points*2-4,length(barequations))*barequations
+v = 0.25*Vector{Float64}(dg[:,1])
 G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz,barequations,num_points*2-3,1)
 EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="gaussnewton", euler_step=euler_step, amount_Euler_steps=i)
 #display(rank(evaluate(G.EDTracker.jacobian, G.EDTracker.tracker.homotopy.F.interpreted.system.variables=>vcat(p,0))))
 euler_array = ["newton", "explicit"]
-
-plt = plot([], []; xlims=(-sqrt(num_points)/2,sqrt(num_points)/2), ylims=(-sqrt(num_points)/2,sqrt(num_points)/2), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), tickfontsize=16)
-for edge in edges
-    plot!(plt, [p0[1,edge[1]], p0[1,edge[2]]], [p0[2,edge[1]], p0[2,edge[2]]], arrow=false, color=:steelblue, linewidth=5, label="")
-end
-for i in 1:size(p0)[2]
-    scatter!(plt, [p0[1,i]], [p0[2,i]], color=:darkgrey, markersize=9, label="")
-end
-savefig(plt, "GilbertGraphTest.png")
 
 testDict["GilbertGraph"] = Dict()
 for euler in 1:length(euler_array)
@@ -409,6 +423,20 @@ for euler in 1:length(euler_array)
             println("Solution: ", EDStep(index,method)[1])
             global index = index+1
             push!(testDict["GilbertGraph"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
+            q = toMatrix(p0, EDStep(index,method)[1])
+            for edge in edges
+                plot!(plt, [q[1,edge[1]], q[1,edge[2]]], [q[2,edge[1]], q[2,edge[2]]], arrow=false, color=:lightgrey, linewidth=4, label="")
+            end
+            for i in 1:size(q)[2]
+                plot!(plt, [p0[1,i], p0[1,i]], [p0[2,i], p0[2,i]], arrow=true, color=:green3, linewidth=4, label="")
+            end
+            for edge in edges
+                plot!(plt, [p0[1,edge[1]], p0[1,edge[2]]], [p0[2,edge[1]], p0[2,edge[2]]], arrow=false, color=:steelblue, linewidth=4, label="")
+            end
+            for i in 1:size(p0)[2]
+                scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
+            end            
+            savefig(plt, "GilbertGraphTest2.png")
         catch e
             display(e)
             push!(testDict["GilbertGraph"][euler_array[euler]], ("ERROR", "ERROR", "ERROR"))

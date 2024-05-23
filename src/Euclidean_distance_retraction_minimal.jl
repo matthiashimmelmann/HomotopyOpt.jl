@@ -123,7 +123,7 @@ end
 #=
  We predict in the projected gradient direction and correct by using the Gauss-Newton method
 =#
-function gaussnewtonstep(equations, jacobian, vars, p; tol=1e-14, initialtime=Base.time(), maxtime=10, maxsteps=2, factor=1)
+function gaussnewtonstep(equations, jacobian, vars, p; tol=1e-14, initialtime=Base.time(), maxtime=50, maxsteps=2, factor=1)
 	global q = p
     global iter = 0
 	while norm(evaluate.(equations, vars=>q)) > tol && iter <= maxsteps
