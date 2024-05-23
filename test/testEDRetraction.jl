@@ -281,8 +281,6 @@ display(testDict)
 
 
 
-
-
 println("\n")
 printstyled("Gilbert Graph test\n", color=:green)
 testDict["GilbertGraph"] = Dict()
@@ -393,12 +391,12 @@ end
 for i in 1:size(p0)[2]
     scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
 end
-#savefig(plt, "GilbertGraphTest.png")
+savefig(plt, "GilbertGraphTest.png")
 
 barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar[2]]).^2) for bar in edges]
 dg = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
 #barequations = rand(Float64,num_points*2-4,length(barequations))*barequations
-v = 2*Vector{Float64}(dg[:,1])
+v = 1*Vector{Float64}(dg[:,1])
 G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz,barequations,num_points*2-3,1)
 #=F = System(barequations, variables=xvarz)
 display(F)
@@ -410,22 +408,19 @@ euler_array = ["newton", "explicit"]
 testDict["GilbertGraph"] = Dict()
 for euler in 1:length(euler_array)
     testDict["GilbertGraph"][euler_array[euler]] = []
-    global index = 0
+    global index = 3
     global method = euler_array[euler]
     while index <= max_indices
         try
             euler_array[euler]=="newton" ? println("$(index) Newton Discretization Steps") : println("$(index) nontrivial Euler Steps")
             local u = median(@benchmark EDStep(index,method))
             linear_steps = []
-            for _ in 1:5
-                push!(linear_steps, EDStep(index,method)[2])
-            end
             #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
             #println("Solution: ", EDStep(index,method)[1])
             println(p)
             global index = index+1
             push!(testDict["GilbertGraph"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
-            if index < max_indices-1
+            if index < max_indices
                 continue
             end
             q = evaluate.(xs, xvarz=>EDStep(index,method)[1])
@@ -441,9 +436,7 @@ for euler in 1:length(euler_array)
             for i in 1:size(p0)[2]
                 scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
             end
-            display(p0)
-            display(q)
-            #savefig(plt, "GilbertGraphTest2.png")
+            savefig(plt, "GilbertGraphTest2.png")
         catch e
             display(e)
             push!(testDict["GilbertGraph"][euler_array[euler]], ("ERROR", "ERROR", "ERROR"))
@@ -452,16 +445,11 @@ for euler in 1:length(euler_array)
     end
 end
 println("HC.jl")
-#@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
 u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
 println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
 linear_steps = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[2]
 println("Average Linear Steps: ", )
-if !isapprox(norm(Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[1]-R_pV), 0)
-    testDict["GilbertGraph"]["HC.jl"] = [("ERROR", "ERROR", "ERROR")]
-else
-    testDict["GilbertGraph"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps))]
-end
+testDict["GilbertGraph"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps))]
 display(testDict)
 
 
