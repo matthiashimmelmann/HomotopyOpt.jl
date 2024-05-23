@@ -152,7 +152,6 @@ function EDStep(G::ConstraintVariety, p, v; homotopyMethod, tol=1e-10, euler_ste
         q = p+v
 		target_parameters!(G.EDTracker.tracker, q)
 		tracker = track(G.EDTracker.tracker, G.EDTracker.startSolution)
-        display(tracker)
 		result = solution(tracker)
 		if all(entry->Base.abs(entry.im)<1e-4, result)
 			return [entry.re for entry in result[1:length(p)]], tracker.accepted_steps
