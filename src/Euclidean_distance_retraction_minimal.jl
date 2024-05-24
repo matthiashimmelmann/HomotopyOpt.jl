@@ -173,6 +173,9 @@ function EDStep(G::ConstraintVariety, p, v; homotopyMethod, tol=1e-10, euler_ste
             equations = evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
             if euler_step=="explicit"
                 global currentSolution = currentSolution .+ explicitEulerStep(G.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1); trivial=true)
+            elseif euler_step=="RK2"
+                global currentSolution = currentSolution .+ RK2step(G.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1); trivial=true)
+                global linear_solves = linear_solves+1
             elseif euler_step=="implicit"
                 global currentSolution = currentSolution .+ explicitEulerStep(G.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1); trivial=true)
             elseif euler_step=="heun"
@@ -190,13 +193,16 @@ function EDStep(G::ConstraintVariety, p, v; homotopyMethod, tol=1e-10, euler_ste
             if euler_step=="explicit"
                 global currentSolution = currentSolution .+ explicitEulerStep(G.EDTracker, currentSolution, p, v, step/(amount_Euler_steps+1), 1/(amount_Euler_steps+1); trivial=false)
                 global linear_solves = linear_solves+1
+            elseif euler_step=="RK2"
+                global currentSolution = currentSolution .+ RK2step(G.EDTracker, currentSolution, p, v, step/(amount_Euler_steps+1), 1/(amount_Euler_steps+1); trivial=false)
+                global linear_solves = linear_solves+2
             elseif euler_step=="midpoint"
                 global currentSolution = currentSolution .+ explicitEulerStep(G.EDTracker, currentSolution, p, v, step/(amount_Euler_steps+1), 1/(2*(amount_Euler_steps+1)); trivial=false)
                 global currentSolution = currentSolution .+ explicitEulerStep(G.EDTracker, currentSolution, p, v, 1/(2*(amount_Euler_steps+1)) + step/(amount_Euler_steps+1), 1/(2*(amount_Euler_steps+1)); trivial=false)
                 global linear_solves = linear_solves+2
             elseif euler_step=="heun"
-                global currentSolution = currentSolution .+ 1/2*(explicitEulerStep(G.EDTracker, currentSolution, p, v, step/(amount_Euler_steps+1), 1/(amount_Euler_steps+1); trivial=false) .+ implicitEulerStep(G.EDTracker, currentSolution, p, v, step/(amount_Euler_steps+1), 1/(amount_Euler_steps+1)))
-                global linear_solves = linear_solves+1
+                global currentSolution = currentSolution .+ 1/2*(explicitEulerStep(G.EDTracker, currentSolution, p, v, step/(amount_Euler_steps+1), 1/(amount_Euler_steps+1); trivial=false) .+ RK2step(G.EDTracker, currentSolution, p, v, step/(amount_Euler_steps+1), 1/(amount_Euler_steps+1)))
+                global linear_solves = linear_solves+2
             end
             equations = evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
             global currentSolution, gaussnewtonsolves = gaussnewtonstep(equations, G.EDTracker.jacobian, vars, currentSolution; initialtime, maxtime, maxsteps = amount_Euler_steps==step ? 250 : (euler_step=="newton" ? 3 : 2))            
@@ -216,13 +222,17 @@ function explicitEulerStep(EDTracker::TrackerWithStartSolution, q, p, v, prev_st
     return dz \ (du*step_size)
 end
 
-function implicitEulerStep(EDTracker::TrackerWithStartSolution, q, p, v, prev_step, step_size; trivial=false)
+function RK2step(EDTracker::TrackerWithStartSolution, q, p, v, prev_step, step_size; trivial=false)
     if trivial
-        return vcat(v*step_size, [0. for _ in 1:(length(EDTracker.tracker.homotopy.F.interpreted.system.variables)-length(p))])
+        k1 = vcat(0.5*v*step_size, [0. for _ in 1:(length(EDTracker.tracker.homotopy.F.interpreted.system.variables)-length(p))])
+    else
+        dz1 = -evaluate.(EDTracker.jacobian, vcat(EDTracker.tracker.homotopy.F.interpreted.system.variables, EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(q, p+prev_step*v))
+        du1 = evaluate.(EDTracker.jacobian_parameter, vcat(EDTracker.tracker.homotopy.F.interpreted.system.variables, EDTracker.ptv) => vcat(q, v))
+        k1 = dz1 \ (du1*0.5*step_size)
     end
-    dz = -evaluate.(EDTracker.jacobian, vcat(EDTracker.tracker.homotopy.F.interpreted.system.variables, EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(q, p+prev_step*v))
-    du = evaluate.(EDTracker.jacobian_parameter, vcat(EDTracker.tracker.homotopy.F.interpreted.system.variables, EDTracker.ptv) => vcat(q, v))
-    return dz \ (du*step_size)
+    dz2 = -evaluate.(EDTracker.jacobian, vcat(EDTracker.tracker.homotopy.F.interpreted.system.variables, EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(q .+ k1, p+(0.5*step_size+prev_step)*v))
+    du2 = evaluate.(EDTracker.jacobian_parameter, vcat(EDTracker.tracker.homotopy.F.interpreted.system.variables, EDTracker.ptv) => vcat(q .+ k1, v))
+    return dz2 \ (du2*step_size)
 end
 
 
