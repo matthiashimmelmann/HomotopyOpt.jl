@@ -5,7 +5,6 @@ Random.seed!(1235);
 testDict = Dict()
 max_indices = 4
 
-
 printstyled("Double Parabola Test\n", color=:green)
 @var x y
 eqnz = (y-x^2-1)*(y+x^2+1)
@@ -279,6 +278,7 @@ println("Average Linear Steps: ", )
 testDict["Octahedron"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps))]
 display(testDict)
 
+=#
 
 
 println("\n")
@@ -373,6 +373,7 @@ function toMatrix(p0, conf)
     return q
 end
 
+Random.seed!(1235);
 num_points = 27
 p0, edges = poisson_point_process(; num_points=num_points)
 @var x[1:2, 1:num_points]
@@ -408,40 +409,32 @@ euler_array = ["newton", "explicit"]
 testDict["GilbertGraph"] = Dict()
 for euler in 1:length(euler_array)
     testDict["GilbertGraph"][euler_array[euler]] = []
-    global index = 3
+    global index = 0
     global method = euler_array[euler]
     while index <= max_indices
-        try
-            euler_array[euler]=="newton" ? println("$(index) Newton Discretization Steps") : println("$(index) nontrivial Euler Steps")
-            local u = median(@benchmark EDStep(index,method))
-            linear_steps = []
-            #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
-            #println("Solution: ", EDStep(index,method)[1])
-            println(p)
-            global index = index+1
-            push!(testDict["GilbertGraph"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
-            if index < max_indices
-                continue
-            end
-            q = evaluate.(xs, xvarz=>EDStep(index,method)[1])
-            for edge in edges
-                plot!(plt, [q[1,edge[1]], q[1,edge[2]]], [q[2,edge[1]], q[2,edge[2]]], arrow=false, color=:lightgrey, linewidth=4, label="")
-            end
-            for i in 1:size(q)[2]
+        euler_array[euler]=="newton" ? println("$(index) Newton Discretization Steps") : println("$(index) nontrivial Euler Steps")
+        local u = median(@benchmark EDStep(index,method))
+        
+        #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
+        #println("Solution: ", EDStep(index,method)[1])
+        global index = index+1
+        push!(testDict["GilbertGraph"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, EDStep(index,method)[2]))
+        q = evaluate.(xs, xvarz=>EDStep(index,method)[1])
+        for edge in edges
+            plot!(plt, [q[1,edge[1]], q[1,edge[2]]], [q[2,edge[1]], q[2,edge[2]]], arrow=false, color=:lightgrey, linewidth=4, label="")
+        end
+        for i in 1:size(q)[2]
+            if !isapprox(norm(p0[:,i]-q[:,i]), 0)
                 plot!(plt, [p0[1,i], q[1,i]], [p0[2,i], q[2,i]], arrow=true, color=:green3, linewidth=4, label="")
             end
-            for edge in edges
-                plot!(plt, [p0[1,edge[1]], p0[1,edge[2]]], [p0[2,edge[1]], p0[2,edge[2]]], arrow=false, color=:steelblue, linewidth=4, label="")
-            end
-            for i in 1:size(p0)[2]
-                scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
-            end
-            savefig(plt, "GilbertGraphTest2.png")
-        catch e
-            display(e)
-            push!(testDict["GilbertGraph"][euler_array[euler]], ("ERROR", "ERROR", "ERROR"))
-            global index = index+1
         end
+        for edge in edges
+            plot!(plt, [p0[1,edge[1]], p0[1,edge[2]]], [p0[2,edge[1]], p0[2,edge[2]]], arrow=false, color=:steelblue, linewidth=4, label="")
+        end
+        for i in 1:size(p0)[2]
+            scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
+        end
+        savefig(plt, "GilbertGraphTest2.png")
     end
 end
 println("HC.jl")
