@@ -23,7 +23,7 @@ plot!(plt, [p[1],p[1]+v[1]], [p[2],p[2]+v[2]], arrow=true, color=:green3, linewi
 
 global index = 0
 m = []
-euler_array = ["newton", "explicit"]
+euler_array = ["newton", "explicit", "RK2"]
 testDict["DoubleParabola"] = Dict()
 for euler in 1:length(euler_array)
     testDict["DoubleParabola"][euler_array[euler]] = []
@@ -406,7 +406,7 @@ display(F)
 Euclidean_distance_retraction_minimal.HCnewtonstep(F,p)=#
 EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="gaussnewton", euler_step=euler_step, amount_Euler_steps=i)
 #display(rank(evaluate(G.EDTracker.jacobian, G.EDTracker.tracker.homotopy.F.interpreted.system.variables=>vcat(p,0))))
-euler_array = ["newton", "explicit"]
+euler_array = ["newton", "explicit", "RK2"]
 
 testDict["GilbertGraph"] = Dict()
 for euler in 1:length(euler_array)
@@ -415,7 +415,7 @@ for euler in 1:length(euler_array)
     global method = euler_array[euler]
     while index <= max_indices
         euler_array[euler]=="newton" ? println("$(index) Newton Discretization Steps") : println("$(index) nontrivial Euler Steps")
-        #local u = median(@benchmark EDStep(index,method))
+        local u = median(@benchmark EDStep(index,method))
         
         #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
         #println("Solution: ", EDStep(index,method)[1])
