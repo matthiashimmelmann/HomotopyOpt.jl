@@ -3,60 +3,92 @@ using HomotopyContinuation, LinearAlgebra, Random, BenchmarkTools, Plots, Implic
 
 Random.seed!(1235);
 testDict = Dict()
-max_indices = 4
+max_indices = 5
+euler_array = ["newton", "explicit"]
+#=
+function savetofile(testDict)
+    open("testEDResults.txt", "w") do file
+        for key in sort(collect(keys(testDict)))
+            write(file, "$(key)\n")
+            for key2 in keys(testDict[key])
+                if occursin("Stiefel", key)
+                    write(file, "Point $(key2)\n")
+                    for key3 in keys(testDict[key][key2])
+                        write(file, "$(key3)\n")
+                        for i in 1:length(testDict[key][key2][key3])
+                            write(file, "$(i-1): $(testDict[key][key2][key3][i][1])ms, $(testDict[key][key2][key3][i][2])kb, $(testDict[key][key2][key3][i][3]) linear solves\n")
+                        end
+                    end
+                    write(file, "\n")
+                else
+                    write(file, "$(key2)\n")
+                    for i in 1:length(testDict[key][key2])
+                        write(file, "$(i-1): $(testDict[key][key2][i][1])ms, $(testDict[key][key2][i][2])kb, $(testDict[key][key2][i][3]) linear solves\n")
+                    end
+                end
+            end
+            write(file, "\n")
+        end
+    end
+end
+
 
 printstyled("Double Parabola Test\n", color=:green)
-@var x y
+@var x y l
 eqnz = (y-x^2-1)*(y+x^2+1)
 
-
-p, v = [-2,5], 5.5/4*[1,-4]
+p, v = [-2,5], 2*[1,-4]
 G = Euclidean_distance_retraction_minimal.ConstraintVariety([x,y], eqnz, 2, 1)
-EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="gaussnewton", euler_step=euler_step, amount_Euler_steps=i)
-R_pV = [-0.15440926990518755, 1.0238422226326531]
+EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="gaussnewton", euler_step=euler_step, amount_Euler_steps=i)
+R_pV = [0, 1]
+
+Lagrange = eqnz*l + sum((p+v-[x,y]).^2)
+relsols = [sol[1:2] for sol in real_solutions(HomotopyContinuation.solve(System(differentiate(Lagrange, [x,y,l]), variables=[x,y,l])))]
+display(relsols)
 
 #display(nullspace(evaluate(differentiate(eqnz, [x,y]), [x,y]=>R_pV)')'*(R_pV-(p+v)))
-plt = implicit_plot((u,w) -> (w-u^2-1)*(w+u^2+1); xlims=(-2.5,2.5), ylims=(-3.5,6.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=0.5, tickfontsize=16, labelfontsize=24)
-plot!(plt, [R_pV[1], (p+v)[1]], [R_pV[2], (p+v)[2]], arrow=false, color=:darkgrey, linewidth=5, label="", linestyle=:dot)
+plt = implicit_plot((u,w) -> (w-u^2-1)*(w+u^2+1); xlims=(-2.5,2.5), ylims=(-3.5,6.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=0.5, tickfontsize=16, labelfontsize=24, legend=false)
+foreach(sol->plot!(plt, [sol[1], (p+v)[1]], [sol[2], (p+v)[2]], arrow=false, color=:darkgrey, linewidth=5, label="", linestyle=:dot), relsols)
+#plot!(plt, [Newtonstep[1], (p+v)[1]], [Newtonstep[2], (p+v)[2]], arrow=false, color=:darkgrey, linewidth=5, label="", linestyle=:dot)
 plot!(plt, [p[1],p[1]+v[1]], [p[2],p[2]+v[2]], arrow=true, color=:green3, linewidth=6, label="")
+foreach(sol->scatter!(plt, [sol[1]], [sol[2]]; color=:magenta, markersize=9), relsols)
+scatter!(plt, [R_pV[1]], [R_pV[2]]; color=:red3, markersize=9)
+scatter!(plt, [p[1]], [p[2]]; color=:black, markersize=9)
+
 #savefig(plt, "DoubleParabolaTest.png")
 
 global index = 0
 m = []
-euler_array = ["newton", "explicit", "RK2"]
+euler_array = ["newton", "explicit"]
 testDict["DoubleParabola"] = Dict()
 for euler in 1:length(euler_array)
     testDict["DoubleParabola"][euler_array[euler]] = []
     global index = 0
     global method = euler_array[euler]
     while index <= max_indices
-        try
-            euler_array[euler]=="newton" ? println("$(index) Newton Discretization Steps") : println("$(index) nontrivial Euler Steps")
-            local u = median(@benchmark EDStep(index,method))
-            linear_steps = []
-            push!(linear_steps, EDStep(index,method)[2])
-            #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
-            #println("Solution: ", EDStep(index,method)[1])
-            global index = index+1
-            if !isapprox(norm(EDStep(index,method)[1]-R_pV), 0; atol=1e-6)
-                push!(testDict["DoubleParabola"][euler_array[euler]], ("x", "x", "x"))
-                continue
-            end
-            push!(testDict["DoubleParabola"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
-        catch e
-            display(e)
-            push!(testDict["DoubleParabola"][euler_array[euler]], ("ERROR", "ERROR", "ERROR"))
-            global index = index+1
+        euler_array[euler]=="newton" ? println("$(index) Newton Discretization Steps") : println("$(index) nontrivial Euler Steps")
+        local u = median(@benchmark EDStep(index,method))
+        linear_steps = []
+        push!(linear_steps, EDStep(index,method)[2])
+        #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
+
+        sol = [EDStep(index,method)[1] for _ in 1:5]
+        println("Solution: ", sol)
+        global index = index+1
+        if any(st->!isapprox(norm(st-R_pV), 0; atol=1e-4), sol)
+            push!(testDict["DoubleParabola"][euler_array[euler]], ("x ($(u.time/(1000*1000)))", "x ($(u.memory/1000))", "x ($(sum(linear_steps)/length(linear_steps)))"))
+            continue
         end
+        push!(testDict["DoubleParabola"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
     end
 end
 println("HC.jl")
 #@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
-u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
-println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
-linear_steps = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[2]
+u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
+println("Solution: ", Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
+linear_steps = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")[2]
 println("Average Linear Steps: ", )
-if !isapprox(norm(Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[1]-R_pV), 0; atol=1e-6)
+if !isapprox(norm(Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")[1]-R_pV), 0; atol=1e-6)
     testDict["DoubleParabola"]["HC.jl"] = [("x", "x", "x")]
 else
     testDict["DoubleParabola"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps))]
@@ -68,24 +100,35 @@ end
 
 
 
-
 println("\n")
 printstyled("Sextic Test\n", color=:green)
 f1 = (x^3-x*y^2+y+1)^2*(x^2+y^2-1)+y^2-5
 G = Euclidean_distance_retraction_minimal.ConstraintVariety([x,y],f1,2,1)
 p = [0,-1.833333333333333333]
 p,_ = Euclidean_distance_retraction_minimal.gaussnewtonstep([f1], differentiate([f1],[x,y])', [x,y], p; tol=1e-12)
+display(p)
 v = [0 -1; 1 0]*evaluate(differentiate(G.equations, G.variables), G.variables=>p)
-v = 1.5 * v ./ v[1]
-EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="gaussnewton", euler_step=euler_step, amount_Euler_steps=i)
+v = 2 * v ./ v[1]
+display(v)
+EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="gaussnewton", euler_step=euler_step, amount_Euler_steps=i)
 #display(rank(evaluate(G.EDTracker.jacobian, G.EDTracker.tracker.homotopy.F.interpreted.system.variables=>vcat(p,0))))
-euler_array = ["newton", "explicit", "RK2"]
-R_pV = [1.1336852003885323, -1.3997499762367878]
+euler_array = ["newton", "explicit"]
+R_pV = [1.2290197279520099, -1.4279713341538283]
 
-plt = implicit_plot((u,w) -> (u^3-u*w^2+w+1)^2*(u^2+w^2-1)+w^2-5; xlims=(-3,2.5), ylims=(-2.5,3), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=0.9, tickfontsize=16, labelfontsize=24)
-plot!(plt, [R_pV[1], (p+v)[1]], [R_pV[2], (p+v)[2]], arrow=false, color=:darkgrey, linewidth=5, label="", linestyle=:dot)
+Lagrange = f1*l + sum((p+v-[x,y]).^2)
+relsols = [[1.2290197279520096, -1.427971334153828],
+[1.2897439969709807, 1.83539853859939],
+[1.1551755060231654, 0.5390959458607674]]
+
+#display(nullspace(evaluate(differentiate(eqnz, [x,y]), [x,y]=>R_pV)')'*(R_pV-(p+v)))
+plt = implicit_plot((u,w) -> (u^3-u*w^2+w+1)^2*(u^2+w^2-1)+w^2-5; xlims=(-2.75,2.75), ylims=(-2.5,2.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=1, tickfontsize=16, labelfontsize=24, legend=false)
+foreach(sol->plot!(plt, [sol[1], (p+v)[1]], [sol[2], (p+v)[2]], arrow=false, color=:darkgrey, linewidth=5, label="", linestyle=:dot), relsols)
+#plot!(plt, [Newtonstep[1], (p+v)[1]], [Newtonstep[2], (p+v)[2]], arrow=false, color=:darkgrey, linewidth=5, label="", linestyle=:dot)
 plot!(plt, [p[1],p[1]+v[1]], [p[2],p[2]+v[2]], arrow=true, color=:green3, linewidth=6, label="")
-savefig(plt, "SexticTest.png")
+foreach(sol->scatter!(plt, [sol[1]], [sol[2]]; color=:magenta, markersize=9), relsols)
+scatter!(plt, [R_pV[1]], [R_pV[2]]; color=:red3, markersize=9)
+scatter!(plt, [p[1]], [p[2]]; color=:black, markersize=9)
+#savefig(plt, "SexticTest.png")
 
 testDict["Sextic"] = Dict()
 for euler in 1:length(euler_array)
@@ -104,7 +147,7 @@ for euler in 1:length(euler_array)
             global index = index+1
             if any(st->!isapprox(norm(st-R_pV), 0; atol=1e-4), sol)
                 display("!")
-                push!(testDict["Sextic"][euler_array[euler]], ("x", "x", "x"))
+                push!(testDict["Sextic"][euler_array[euler]], ("x ($(u.time/(1000*1000)))", "x ($(u.memory/1000))", "x ($(sum(linear_steps)/length(linear_steps)))"))
                 continue
             end
             push!(testDict["Sextic"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
@@ -117,11 +160,11 @@ for euler in 1:length(euler_array)
 end
 println("HC.jl")
 #@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
-u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
-println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
-linear_steps = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[2]
+u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
+println("Solution: ", Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
+linear_steps = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")[2]
 println("Average Linear Steps: ", )
-if !isapprox(norm(Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[1]-R_pV), 0; atol=1e-6)
+if !isapprox(norm(Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")[1]-R_pV), 0; atol=1e-6)
     testDict["Sextic"]["HC.jl"] = [("x", "x", "x")]
 else
     testDict["Sextic"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps))]
@@ -130,6 +173,8 @@ for key in keys(testDict)
     display(key)
     display(testDict[key])
 end
+
+savetofile(testDict)
 
 
 #=
@@ -170,52 +215,52 @@ display(heatmap(dt, ds, heatmapdtds))
 
 
 println("\n")
+euler_array = ["newton", "explicit"]
 #TODO CHECK THE ANSWER USING QR-decomp (also start point)
-for n in [(4,7),(5,7),(6,7),(7,7)]
+for n in [(1,7),(2,7),(3,7),(4,7),(5,7),(6,7),(7,7)]
+    testDict["Stiefel$(n)"] = Dict()
     printstyled("Stiefel Manifold Test $(n)\n", color=:green)
     @var x[1:n[1],1:n[2]]
     f3 = vcat(x*x' - LinearAlgebra.Diagonal([1 for _ in 1:n[1]])...)
     f3 = rand(Float64, n[1]*n[1], Int(n[1]*(n[1]+1)/2))'*f3
     xvarz = vcat([x[i,j] for i in 1:n[1], j in 1:n[2]]...)
     global G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz, f3, n[1]*n[2], n[1]*n[2]-Int(n[1]*(n[1]+1)/2))
-    qrdecomp = svd(rand(Float64,n[1],n[2])).Vt
-    global p = vcat([qrdecomp[i,j] for i in 1:n[1], j in 1:n[2]]...)
-    nlp = nullspace(evaluate(differentiate(f3, xvarz), xvarz=>p))
-    global v = real.(nlp[:,1] ./ (norm(nlp[:,1])))
-    EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep(G, p, v; euler_step=euler_step, homotopyMethod="gaussnewton", amount_Euler_steps=i)
+    for i in 1:5
+        println("Point $(i)")
+        qrdecomp = svd(rand(Float64,n[1],n[2])).Vt
+        global p = vcat([qrdecomp[i,j] for i in 1:n[1], j in 1:n[2]]...)
+        nlp = nullspace(evaluate(differentiate(f3, xvarz), xvarz=>p))
+        global v = 3 .* real.(nlp[:,1] ./ (norm(nlp[:,1])))
+        global ED_step_comp = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; euler_step=euler_step, homotopyMethod="gaussnewton", amount_Euler_steps=i)
+        testDict["Stiefel$(n)"][i] = Dict()
 
-    testDict["Stiefel$(n)"] = Dict()
-    println("HC.jl")
-    #@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
-    local u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
-    println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
-    linear_steps = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[2]
-    println("Average Linear Steps: ", )
-    testDict["Stiefel$(n)"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, linear_steps)]
+        println("HC.jl")
+        #@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
+        local u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
+        #println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
+        sol = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")
+        linear_steps = sol[2]
+        #println("Average Linear Steps: ", )
+        testDict["Stiefel$(n)"][i]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, linear_steps)]
 
-    global R_pV = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[1]
-    for euler in 1:length(euler_array)
-        testDict["Stiefel$(n)"][euler_array[euler]] = []
-        global index = 0
-        global method = euler_array[euler]
-        while index <= max_indices
-            try
+        global R_pV = sol[1]
+        for euler in 1:length(euler_array)
+            testDict["Stiefel$(n)"][i][euler_array[euler]] = []
+            global index = 0
+            global method = euler_array[euler]
+            while index <= max_indices
                 euler_array[euler]=="newton" ? println("$(index) Newton Discretization Steps") : println("$(index) nontrivial Euler Steps")
-                local u = median(@benchmark EDStep(index,method))
+                local u = median(@benchmark ED_step_comp(index,method))
                 linear_steps = []
-                push!(linear_steps, EDStep(index,method)[2])
+                push!(linear_steps, ED_step_comp(index,method)[2])
                 #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
                 #println("Solution: ", EDStep(index,method)[1])
                 global index = index+1
-                if !isapprox(norm(EDStep(index,method)[1] .- R_pV), 0; atol=1e-6)
-                    push!(testDict["Stiefel$(n)"][euler_array[euler]], ("x", "x", "x"))
+                if !isapprox(norm(ED_step_comp(index,method)[1] .- R_pV), 0; atol=1e-6)
+                    push!(testDict["Stiefel$(n)"][i][euler_array[euler]], ("x ($(u.time/(1000*1000)))", "x ($(u.memory/1000))", "x ($(sum(linear_steps)/length(linear_steps)))"))
                     continue
                 end
-                push!(testDict["Stiefel$(n)"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
-            catch e
-                display(e)
-                push!(testDict["Stiefel$(n)"][euler_array[euler]], ("ERROR", "ERROR", "ERROR"))
-                global index = index+1
+                push!(testDict["Stiefel$(n)"][i][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
             end
         end
     end
@@ -224,9 +269,14 @@ for n in [(4,7),(5,7),(6,7),(7,7)]
     end
 end
 
+savetofile(testDict)
+
+
 
 println("\n")
 printstyled("Octahedron Test\n", color=:green)
+testDict["Octahedron"] = Dict()
+
 function toArray(p)
     configuration = Vector{Float64}([])
     for i in 1:3, j in 4:6
@@ -234,6 +284,7 @@ function toArray(p)
     end
     return configuration
 end
+
 @var x[1:3,1:6]
 p0 = [0 0 -1.; 1 -1 0; 1 1 0; -1 -1 0; -1 1 0; 0 0 1;]'
 edges = [(1,4), (1,5), (2,6), (3,6), (4,6), (5,6), (4,5), (2,5), (3,4)]
@@ -245,12 +296,17 @@ barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar
 barequations = Vector{Expression}(rand(Float64,8,9)*barequations)
 p = toArray(p0)#+0.05*rand(Float64,9)
 nlp = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
-v = 3 .* real.(nlp[:,1] ./ (norm(nlp[:,1])*nlp[1,1]))
+v = 5 .* real.(nlp[:,1] ./ (norm(nlp[:,1])*nlp[1,1]))
 G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz, barequations, 9, 1)
-EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep(G, p, v; euler_step=euler_step, homotopyMethod="gaussnewton", amount_Euler_steps=i)
-R_pV = [-0.04389030151885144, -1.6052196028741612, -0.35089009560698886, -1.6442303344309768, -0.5330538377295431, -0.8888235032985654, -0.40099064822188346, -2.0216649379093323e-16, 0.19293834143276115]
+EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; euler_step=euler_step, homotopyMethod="gaussnewton", amount_Euler_steps=i)
+println("HC.jl")
+#@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
+u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
+println("Solution: ", Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
+linear_steps = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")
+testDict["Octahedron"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, linear_steps[2])]
+R_pV = Base.copy(linear_steps[1])
 
-testDict["Octahedron"] = Dict()
 for euler in 1:length(euler_array)
     testDict["Octahedron"][euler_array[euler]] = []
     global index = 0
@@ -263,25 +319,19 @@ for euler in 1:length(euler_array)
         #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
         #println("Solution: ", EDStep(index,method)[1])
         global index = index+1
-        if !isapprox(norm(EDStep(index,method)[1]-R_pV), 0; atol=1e-6)
-            push!(testDict["Octahedron"][euler_array[euler]], ("x", "x", "x"))
+        if !isapprox(norm(EDStep(index,method)[1]-R_pV), 0; atol=1e-5)
+            push!(testDict["Octahedron"][euler_array[euler]], ("x ($(u.time/(1000*1000)))", "x ($(u.memory/1000))", "x ($(sum(linear_steps)/length(linear_steps)))"))
             continue
         end
         push!(testDict["Octahedron"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
     end
 end
-println("HC.jl")
-#@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
-u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
-println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
-linear_steps = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[2]
-println("Average Linear Steps: ", )
-testDict["Octahedron"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, linear_steps)]
 for key in keys(testDict)
     display(testDict[key])
 end
 
-
+savetofile(testDict)
+=#
 
 println("\n")
 printstyled("Gilbert Graph test\n", color=:green)
@@ -348,10 +398,10 @@ function poisson_point_process(; r_fast_search_coefficient = 0.33, r_search_coef
         if ((rank(create_rigidity_matrix(p0,edges; torus=torus)) < size(p0)[1]*size(p0)[2]-3))
             continue # If the graph is not rigid, continue the search and increase r
         end
-        display(r)
+        #(r)
         global vxlist, edge_list = [i for i in 1:n_poiss], Base.copy(edges)
         global independent_edges = find_independent_edges(vxlist,edge_list,p0)
-        display(independent_edges)
+        #display(independent_edges)
         deleteat!(edge_list, findfirst(t->(independent_edges[end-1])==t, edge_list))
 
         display(rank(create_rigidity_matrix(p0,edges)) - (size(p0)[1]*size(p0)[2]-3))
@@ -399,16 +449,24 @@ savefig(plt, "GilbertGraphTest.png")
 barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar[2]]).^2) for bar in edges]
 dg = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
 #barequations = rand(Float64,num_points*2-4,length(barequations))*barequations
-v = 1.25*Vector{Float64}(dg[:,1])
+v = Vector{Float64}(dg[:,1])
 G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz,barequations,num_points*2-3,1)
 #=F = System(barequations, variables=xvarz)
 display(F)
 Euclidean_distance_retraction_minimal.HCnewtonstep(F,p)=#
-EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="gaussnewton", euler_step=euler_step, amount_Euler_steps=i)
+EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="gaussnewton", euler_step=euler_step, amount_Euler_steps=i)
 #display(rank(evaluate(G.EDTracker.jacobian, G.EDTracker.tracker.homotopy.F.interpreted.system.variables=>vcat(p,0))))
-euler_array = ["newton", "explicit", "RK2"]
+euler_array = ["newton", "explicit"]
 
 testDict["GilbertGraph"] = Dict()
+println("HC.jl")
+u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
+linear_steps = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")
+testDict["GilbertGraph"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, linear_steps[2])]
+R_pV = linear_steps[1]
+#R_pV =  [-0.10386893199082876, -0.687083321227572, -1.0321262695081679, 1.9031210271801597, -2.1723757096171163, -1.224693817190252, 0.5315228325172509, 0.17936291043177147, 1.8893956605634585, 2.3604360777779685, 0.2561932309537942, 2.183698362528558, -0.9370980463177627, -1.1449954503298052, -1.8583678724375687, 2.1840458048027087, 0.09796204959477836, -2.1613798621192535, 0.49363119777358744, 2.071862189765919, -1.3152237268600644, -1.4052339734170436, -1.7690569104380207, -2.109432744710661, 0.18913729365551674, 0.4595141798011463, -1.831129643749599, 1.4753018779014155, -0.10512764494362918, 2.5561562580812263, -1.128112041399618, 2.186833916394935, 1.5540837424989766, -2.026472622869457, 1.999886161418336, 1.136828759026351, 1.1854874584197916, 0.02791704622818384, 1.6080227577396484, 1.326063130149908, -2.5188983904180757, -0.4021487936373933, -2.0387743611661215, -0.9495701782600748, 0.20809458732938638, -2.139311375829354, 0.22982108704292945, -2.628990572877142, -1.2526436187012342, -1.0389502741147554, 1.9895276310095587]
+println("Solution: ", R_pV)
+
 for euler in 1:length(euler_array)
     testDict["GilbertGraph"][euler_array[euler]] = []
     global index = 0
@@ -418,11 +476,17 @@ for euler in 1:length(euler_array)
         local u = median(@benchmark EDStep(index,method))
         
         #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
-        #println("Solution: ", EDStep(index,method)[1])
+        println("Solution: ", EDStep(index,method)[1])
+        sol = EDStep(index,method)
+        
+        #=if !isapprox(norm(sol[1]-R_pV), 0; atol=1e-5)
+            push!(testDict["GilbertGraph"][euler_array[euler]], ("x ($(u.time/(1000*1000)))", "x ($(u.memory/1000))", "x ($(sol[2]))"))
+        else=#
+        push!(testDict["GilbertGraph"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sol[2]))
+        
         global index = index+1
-        push!(testDict["GilbertGraph"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, EDStep(index,method)[2]))
-        index < max_indices+1 ? continue : nothing 
-        q = evaluate.(xs, xvarz=>EDStep(index,method)[1])
+        index < max_indices ? continue : nothing 
+        q = evaluate.(xs, xvarz=>sol[1])
         for edge in edges
             plot!(plt, [q[1,edge[1]], q[1,edge[2]]], [q[2,edge[1]], q[2,edge[2]]], arrow=false, color=:lightgrey, linewidth=4, label="")
         end
@@ -440,28 +504,7 @@ for euler in 1:length(euler_array)
         savefig(plt, "GilbertGraphTest2.png")
     end
 end
-println("HC.jl")
-u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
-println("Solution: ", Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation"))
-linear_steps = Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")[2]
-println("Average Linear Steps: ", )
-testDict["GilbertGraph"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, linear_steps)]
 display(testDict)
 
 
-
-
-
-
-open("testEDResults.txt", "w") do file
-    for key in keys(testDict)
-        write(file, "$(key)\n")
-        for key2 in keys(testDict[key])
-            write(file, "$(key2)\n")
-            for i in 1:length(testDict[key][key2])
-                write(file, "$(i): $(testDict[key][key2][i][1])ms, $(testDict[key][key2][i][2])kb, $(testDict[key][key2][i][3]) linear solves\n")
-            end
-        end
-        write(file, "\n")
-    end
-end
+savetofile(testDict)
