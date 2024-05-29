@@ -145,7 +145,7 @@ function gaussnewtonstep(equations, jacobian, vars, p; tol=1e-10, initialtime=Ba
 	return q, iter
 end
 
-function EDStep_HC(G::ConstraintVariety, p, v; homotopyMethod, euler_step="explicit", amount_Euler_steps=0, maxtime=100)
+function EDStep_HC(G::ConstraintVariety, p, v; homotopyMethod, euler_step="explicit", amount_Euler_steps=0, maxtime=100, print=false)
     #initialtime = Base.time()
     q0 = p#+1e-3*Basenormal[:,1]
     start_parameters!(G.EDTracker.tracker, q0)
@@ -157,6 +157,10 @@ function EDStep_HC(G::ConstraintVariety, p, v; homotopyMethod, euler_step="expli
 		target_parameters!(G.EDTracker.tracker, q)
 		tracker = track(G.EDTracker.tracker, G.EDTracker.startSolution)
 		result = solution(tracker)
+        if print
+            display(tracker)
+            display(result)
+        end
 		if all(entry->Base.abs(entry.im)<1e-4, result)
 			return [entry.re for entry in result[1:length(p)]], tracker.accepted_steps
 		else

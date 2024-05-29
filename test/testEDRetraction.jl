@@ -5,7 +5,7 @@ Random.seed!(1235);
 testDict = Dict()
 max_indices = 5
 euler_array = ["newton", "explicit"]
-#=
+
 function savetofile(testDict)
     open("testEDResults.txt", "w") do file
         for key in sort(collect(keys(testDict)))
@@ -31,6 +31,7 @@ function savetofile(testDict)
         end
     end
 end
+
 
 
 printstyled("Double Parabola Test\n", color=:green)
@@ -86,7 +87,7 @@ println("HC.jl")
 #@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
 u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
 println("Solution: ", Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
-linear_steps = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")[2]
+linear_steps = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation", print=true)[2]
 println("Average Linear Steps: ", )
 if !isapprox(norm(Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")[1]-R_pV), 0; atol=1e-6)
     testDict["DoubleParabola"]["HC.jl"] = [("x", "x", "x")]
@@ -278,11 +279,7 @@ printstyled("Octahedron Test\n", color=:green)
 testDict["Octahedron"] = Dict()
 
 function toArray(p)
-    configuration = Vector{Float64}([])
-    for i in 1:3, j in 4:6
-        push!(configuration, p[i,j])
-    end
-    return configuration
+    return vcat([p[i,j] for i in 1:3, j in 4:6]...)
 end
 
 @var x[1:3,1:6]
@@ -331,7 +328,98 @@ for key in keys(testDict)
 end
 
 savetofile(testDict)
-=#
+
+
+
+println("\n")
+printstyled("3-prism Test\n", color=:green)
+testDict["3-prism"] = Dict()
+
+function toArray(p)
+    return vcat(p[2,2], [p[i,j] for i in 1:2, j in 3:4]...)
+end
+
+@var x[1:2,1:4]
+p0 = [0 0; 1 0; 1 1; 0 1;]'
+edges = [(1,3), (2,3), (2,4), (4,1)]
+xs = zeros(HomotopyContinuation.Expression,(2,4))
+xs[:,1] = p0[:,1]
+xs[1,2] = p0[1,2]
+xs[2,2] = x[2,2]
+xs[:,3:4] = x[:,3:4]
+xvarz = vcat(x[2,2], [x[i,j] for i in 1:2, j in 3:4]...)
+barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar[2]]).^2) for bar in edges]
+barequations = filter(eq->eq!=0, barequations)
+#barequations = Vector{Expression}(rand(Float64,7,8)*barequations)
+p = toArray(p0)#+0.05*rand(Float64,9)
+nlp = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
+plt = plot([], []; xlims=(-1,2), ylims=(-1,2), linewidth=4, color=:steelblue, grid=false, label="", size=(800,800), tickfontsize=16)
+for edge in edges
+    plot!(plt, [p0[1,edge[1]], p0[1,edge[2]]], [p0[2,edge[1]], p0[2,edge[2]]], arrow=false, color=:steelblue, linewidth=4, label="")
+end
+for i in 1:size(p0)[2]
+    scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
+end
+savefig(plt, "3prismtest.png")
+
+v = 5 .* real.(nlp[:,1] ./ (norm(nlp[:,1])))
+display(v)
+G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz, barequations, 5, 1)
+EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; euler_step=euler_step, homotopyMethod="gaussnewton", amount_Euler_steps=i)
+println("HC.jl")
+#@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
+u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
+linear_steps = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")
+println("Solution: ", Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")[1])
+testDict["3-prism"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, linear_steps[2])]
+R_pV = Base.copy(linear_steps[1])
+
+for euler in 1:length(euler_array)
+    testDict["3-prism"][euler_array[euler]] = []
+    global index = 0
+    global method = euler_array[euler]
+    while index <= max_indices
+        euler_array[euler]=="newton" ? println("$(index) Newton Discretization Steps") : println("$(index) nontrivial Euler Steps")
+        local u = median(@benchmark EDStep(index,method))
+        linear_steps = []
+        push!(linear_steps, EDStep(index,method)[2])
+        #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
+        println("Solution: ", EDStep(index,method)[1])
+        if !isapprox(norm(EDStep(index,method)[1]-R_pV), 0; atol=1e-5)
+            push!(testDict["3-prism"][euler_array[euler]], ("x ($(u.time/(1000*1000)))", "x ($(u.memory/1000))", "x ($(sum(linear_steps)/length(linear_steps)))"))
+        else
+            push!(testDict["3-prism"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
+        end
+        q = evaluate.(xs, xvarz=>EDStep(index,method)[1])
+
+        global index = index+1
+        #index < max_indices ? continue : nothing 
+        for edge in edges
+            plot!(plt, [q[1,edge[1]], q[1,edge[2]]], [q[2,edge[1]], q[2,edge[2]]], arrow=false, color=:lightgrey, linewidth=4, label="")
+        end
+        for i in 1:size(q)[2]
+            if !isapprox(norm(p0[:,i]-q[:,i]), 0; atol=1e-4)
+                plot!(plt, [p0[1,i], q[1,i]], [p0[2,i], q[2,i]], arrow=true, color=:green3, linewidth=4, label="")
+            end
+        end
+        for edge in edges
+            plot!(plt, [p0[1,edge[1]], p0[1,edge[2]]], [p0[2,edge[1]], p0[2,edge[2]]], arrow=false, color=:steelblue, linewidth=4, label="")
+        end
+        for i in 1:size(p0)[2]
+            scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
+        end
+        savefig(plt, "3prismtest2.png")
+    end
+end
+for key in keys(testDict)
+    display(testDict[key])
+end
+
+
+
+savetofile(testDict)
+
+
 
 println("\n")
 printstyled("Gilbert Graph test\n", color=:green)
@@ -437,7 +525,7 @@ xs[2,2] = x[2,2]
 xs[:,3:num_points] = x[:,3:num_points]
 xvarz = vcat(x[2,2], vcat([x[i,j] for i in 1:2, j in 3:num_points]...))
 p = vcat(p0[2,2], vcat([p0[i,j] for i in 1:2, j in 3:num_points]...))
-plt = plot([], []; xlims=(-sqrt(num_points)/1.95,sqrt(num_points)/1.95), ylims=(-sqrt(num_points)/1.95,sqrt(num_points)/1.95), linewidth=4, color=:steelblue, grid=false, label="", size=(800,800), tickfontsize=16)
+plt = plot([], []; xlims=(-sqrt(num_points)/1.9,sqrt(num_points)/1.9), ylims=(-sqrt(num_points)/1.9,sqrt(num_points)/1.9), linewidth=4, color=:steelblue, grid=false, label="", size=(800,800), tickfontsize=16)
 for edge in edges
     plot!(plt, [p0[1,edge[1]], p0[1,edge[2]]], [p0[2,edge[1]], p0[2,edge[2]]], arrow=false, color=:steelblue, linewidth=4, label="")
 end
@@ -448,8 +536,8 @@ savefig(plt, "GilbertGraphTest.png")
 
 barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar[2]]).^2) for bar in edges]
 dg = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
-#barequations = rand(Float64,num_points*2-4,length(barequations))*barequations
-v = Vector{Float64}(dg[:,1])
+barequations = rand(Float64,num_points*2-4,length(barequations))*barequations
+v = 1.5*Vector{Float64}(dg[:,1])
 G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz,barequations,num_points*2-3,1)
 #=F = System(barequations, variables=xvarz)
 display(F)
@@ -461,7 +549,7 @@ euler_array = ["newton", "explicit"]
 testDict["GilbertGraph"] = Dict()
 println("HC.jl")
 u = median(@benchmark Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
-linear_steps = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation")
+linear_steps = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation", print=true)
 testDict["GilbertGraph"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, linear_steps[2])]
 R_pV = linear_steps[1]
 #R_pV =  [-0.10386893199082876, -0.687083321227572, -1.0321262695081679, 1.9031210271801597, -2.1723757096171163, -1.224693817190252, 0.5315228325172509, 0.17936291043177147, 1.8893956605634585, 2.3604360777779685, 0.2561932309537942, 2.183698362528558, -0.9370980463177627, -1.1449954503298052, -1.8583678724375687, 2.1840458048027087, 0.09796204959477836, -2.1613798621192535, 0.49363119777358744, 2.071862189765919, -1.3152237268600644, -1.4052339734170436, -1.7690569104380207, -2.109432744710661, 0.18913729365551674, 0.4595141798011463, -1.831129643749599, 1.4753018779014155, -0.10512764494362918, 2.5561562580812263, -1.128112041399618, 2.186833916394935, 1.5540837424989766, -2.026472622869457, 1.999886161418336, 1.136828759026351, 1.1854874584197916, 0.02791704622818384, 1.6080227577396484, 1.326063130149908, -2.5188983904180757, -0.4021487936373933, -2.0387743611661215, -0.9495701782600748, 0.20809458732938638, -2.139311375829354, 0.22982108704292945, -2.628990572877142, -1.2526436187012342, -1.0389502741147554, 1.9895276310095587]

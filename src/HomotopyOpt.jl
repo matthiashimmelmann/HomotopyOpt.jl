@@ -475,7 +475,7 @@ function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep,
 	qlo, suclo = stepchoice(F, G, whichstep, αlo, p0, basegradient; initialtime, maxseconds, homotopyMethod)
 	# To not get stuck in the iteration, we use a for loop instead of a while loop
 	# TODO Add a more meaningful stopping criterion
-	for _ in 1:4
+	for _ in 1:5
 		global α = 0.5*(αlo+αhi)
 		print(round(α, digits=3), ", ")
 		#println("α: ", α)
