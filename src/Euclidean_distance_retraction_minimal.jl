@@ -22,6 +22,7 @@ export ConstraintVariety,
 #=
  Equips a HomotopyContinuation.Tracker with a start Solution that can be changed on the fly
 =#
+
 mutable struct TrackerWithStartSolution
 	tracker
 	startSolution
@@ -51,13 +52,11 @@ mutable struct ConstraintVariety
     jacobian
     ambientdimension
 	dimensionofvariety
-    implicitequations
     EDTracker
 
 	# Given variables and HomotopyContinuation-based equations, sample points from the variety and return the corresponding struct
 	function ConstraintVariety(varz, eqnz, N::Int, d::Int)
         jacobian = hcat([differentiate(eq, varz) for eq in eqnz]...)
-		impliciteq = [p->eqn(varz=>p) for eqn in eqnz]
 
         fulleqnz = eqnz
 		if length(eqnz) + d > N
@@ -72,7 +71,7 @@ mutable struct ConstraintVariety
 		p0 = randn(Float64, N)
 		H = ParameterHomotopy(EDSystem, start_parameters = p0, target_parameters = p0)
 		EDTracker = TrackerWithStartSolution(Tracker(H), [], N)
-        new(varz,eqnz,fulleqnz,jacobian,N,d,impliciteq,EDTracker)
+        new(varz,eqnz,fulleqnz,jacobian,N,d,EDTracker)
     end
 
 	# Given implicit equations, sample points from the corresponding variety and return the struct
@@ -126,6 +125,7 @@ function gaussnewtonstep_HC(G::ConstraintVariety, initial_point, q; max_iters)
         q;
         max_iters = max_iters
     )
+    #display(res)
     return real.(res.x), res.iters
 end
 #=
@@ -162,12 +162,12 @@ function EDStep_HC(G::ConstraintVariety, p, v; homotopyMethod, euler_step="expli
             display(result)
         end
 		if all(entry->Base.abs(entry.im)<1e-4, result)
-			return [entry.re for entry in result[1:length(p)]], tracker.accepted_steps
+			return [entry.re for entry in result[1:length(p)]], tracker.accepted_steps, tracker
 		else
 			throw(error("Complex Space entered!"))
 		end
 	else
-        currentSolution = G.EDTracker.startSolution
+        global currentSolution = G.EDTracker.startSolution
         if amount_Euler_steps!=-1
             q = p+(1/(amount_Euler_steps+1))*v
             #equations = evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
@@ -185,7 +185,7 @@ function EDStep_HC(G::ConstraintVariety, p, v; homotopyMethod, euler_step="expli
             q = p+v
             #equations = evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
         end
-        global currentSolution, gaussnewtonsolves = gaussnewtonstep_HC(G, currentSolution, q; max_iters = amount_Euler_steps<=0 ? 250 : (euler_step=="newton" ? 10 : 9))
+        global currentSolution, gaussnewtonsolves = gaussnewtonstep_HC(G, currentSolution, q; max_iters = amount_Euler_steps<=0 ? 400 : (euler_step=="newton" ? 10 : 9))
         global linear_solves = linear_solves + gaussnewtonsolves
         for step in 1:amount_Euler_steps
             q = p+((step+1)/(amount_Euler_steps+1))*v
@@ -205,11 +205,11 @@ function EDStep_HC(G::ConstraintVariety, p, v; homotopyMethod, euler_step="expli
                 global linear_solves = linear_solves+2
             end
             #equations = evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
-            global currentSolution, gaussnewtonsolves = gaussnewtonstep_HC(G, currentSolution, q; max_iters = amount_Euler_steps==step ? 250 : (euler_step=="newton" ? 10 : 9))
+            global currentSolution, gaussnewtonsolves = gaussnewtonstep_HC(G, currentSolution, q; max_iters = amount_Euler_steps==step ? 400 : (euler_step=="newton" ? 10 : 9))
             global linear_solves = linear_solves + gaussnewtonsolves
         end
         #println(norm(prev_sol-currentSolution), " ", norm(prediction-currentSolution))
-        return currentSolution[1:length(q)], linear_solves
+        return currentSolution[1:length(q)], linear_solves, []
 	end
 end
 
