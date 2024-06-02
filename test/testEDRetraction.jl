@@ -83,7 +83,7 @@ R_pV = [0, 1]
 
 Lagrange = eqnz*l + sum((p+v-[x,y]).^2)
 relsols = [sol[1:2] for sol in real_solutions(HomotopyContinuation.solve(System(differentiate(Lagrange, [x,y,l]), variables=[x,y,l])))]
-#=
+
 #display(nullspace(evaluate(differentiate(eqnz, [x,y]), [x,y]=>R_pV)')'*(R_pV-(p+v)))
 plt = implicit_plot((u,w) -> (w-u^2-1)*(w+u^2+1); xlims=(-2.5,2.5), ylims=(-3.5,6.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=0.5, tickfontsize=16, labelfontsize=24, legend=false)
 xy_vals = vcat([[t, t^2+1] for t in -2.5:0.00025:2.5], [[t, -t^2-1] for t in -2.5:0.00025:2.5])
@@ -98,8 +98,8 @@ foreach(sol->scatter!(plt, [sol[1]], [sol[2]]; color=:magenta, markersize=9), re
 scatter!(plt, [R_pV[1]], [R_pV[2]]; color=:red3, markersize=9)
 scatter!(plt, [p[1]], [p[2]]; color=:black, markersize=9)
 
-savefig(plt, "DoubleParabolaTest.png")
-=#
+savefig(plt, "Images/DoubleParabolaTest.png")
+
 
 global index = 0
 m = []
@@ -165,7 +165,7 @@ relsols = [[1.2290197279520096, -1.427971334153828],
 [1.2897439969709807, 1.83539853859939],
 [1.1551755060231654, 0.5390959458607674]]
 
-#=
+
 #display(nullspace(evaluate(differentiate(eqnz, [x,y]), [x,y]=>R_pV)')'*(R_pV-(p+v)))
 plt = implicit_plot((u,w) -> (u^3-u*w^2+w+1)^2*(u^2+w^2-1)+w^2-5; xlims=(-2.75,2.75), ylims=(-2.5,2.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=1, tickfontsize=16, labelfontsize=24, legend=false)
 xy_vals = []
@@ -186,8 +186,8 @@ foreach(sol->scatter!(plt, [sol[1]], [sol[2]]; color=:magenta, markersize=9), re
 scatter!(plt, [R_pV[1]], [R_pV[2]]; color=:red3, markersize=9)
 scatter!(plt, [p[1]], [p[2]]; color=:black, markersize=9)
 
-savefig(plt, "SexticTest.png")
-=#
+savefig(plt, "Images/SexticTest.png")
+
 
 testDict["Sextic"] = Dict()
 for euler in 1:length(euler_array)
@@ -432,7 +432,7 @@ display(ps[argmin([norm(toArray(t)-toArray(p0)) for t in ps])])
 p = toArray(ps[argmin([norm(toArray(t)-toArray(p0)) for t in ps])])
 display(p)
 
-#=
+
 q = evaluate.(xs,xvarz=>p)
 plt = plot([], []; xlims=(-0.5,6.5), ylims=(-0.5,1.5), linewidth=5, color=:steelblue, aspect_ratio=1.5, grid=false, label="", size=(800,800), tickfontsize=16)
 for edge in edges
@@ -441,7 +441,7 @@ end
 for i in 1:size(q)[2]
     scatter!(plt, [q[1,i]], [q[2,i]], color=:black, mc=:black, markersize=7, label="")
 end
-savefig(plt, "ConnellyTest.png")=#
+savefig(plt, "Images/ConnellyTest.png")
 
 nlp = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
 v = 10*nlp[:,1]
@@ -477,7 +477,7 @@ for euler in 1:length(euler_array)
         q = evaluate.(xs, xvarz=>EDStep(index,method)[1])
 
         global index = index+1
-        #=
+        
         (index>3||euler_array[euler]!="newton") ? continue : nothing
         for edge in edges
             plot!(plt, [q[1,edge[1]], q[1,edge[2]]], [q[2,edge[1]], q[2,edge[2]]], arrow=false, color=:lightgrey, linewidth=4, label="")
@@ -493,7 +493,7 @@ for euler in 1:length(euler_array)
         for i in 1:size(p0)[2]
             scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
         end
-        savefig(plt, "ConnellyTest2.png")=#
+        savefig(plt, "Images/ConnellyTest2.png")
     end
 end
 for key in keys(testDict["Connelly"])
@@ -610,7 +610,7 @@ xs[2,2] = x[2,2]
 xs[:,3:num_points] = x[:,3:num_points]
 xvarz = vcat(x[2,2], vcat([x[i,j] for i in 1:2, j in 3:num_points]...))
 p = vcat(p0[2,2], vcat([p0[i,j] for i in 1:2, j in 3:num_points]...))
-#=
+
 plt = plot([], []; xlims=(-sqrt(num_points)/1.9,sqrt(num_points)/1.9), ylims=(-sqrt(num_points)/1.9,sqrt(num_points)/1.9), linewidth=4, color=:steelblue, grid=false, label="", size=(800,800), tickfontsize=16)
 for edge in edges
     plot!(plt, [p0[1,edge[1]], p0[1,edge[2]]], [p0[2,edge[1]], p0[2,edge[2]]], arrow=false, color=:steelblue, linewidth=4, label="")
@@ -618,7 +618,7 @@ end
 for i in 1:size(p0)[2]
     scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
 end
-savefig(plt, "GilbertGraphTest.png")=#
+savefig(plt, "Images/GilbertGraphTest.png")
 
 barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar[2]]).^2) for bar in edges]
 dg = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
@@ -659,7 +659,7 @@ for euler in 1:length(euler_array)
         push!(testDict["GilbertGraph"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sol[2]))
         
         global index = index+1
-        #=
+        
         index < max_indices ? continue : nothing 
         q = evaluate.(xs, xvarz=>sol[1])
         for edge in edges
@@ -676,7 +676,7 @@ for euler in 1:length(euler_array)
         for i in 1:size(p0)[2]
             scatter!(plt, [p0[1,i]], [p0[2,i]], color=:black, mc=:black, markersize=7, label="")
         end
-        savefig(plt, "GilbertGraphTest2.png")=#
+        savefig(plt, "Images/GilbertGraphTest2.png")
     end
 end
 display(testDict)
