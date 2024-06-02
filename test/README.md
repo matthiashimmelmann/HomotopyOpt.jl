@@ -7,8 +7,8 @@ julia> cd("<your_julia_home_folder>\\HomotopyOpt.jl")
 julia> pwd()      # Print the cursor's current location
 "<your_julia_home_folder>\\HomotopyOpt.jl"
 julia> ]          # Pressing ] let's us enter Julia's package manager
-(@v1.6) pkg> activate .
+(@v1.9) pkg> activate .
 (HomotopyOpt) pkg> test
 ```
 
-At the moment, this runs tests in 2D and in 3D for each of the optimization methods `gaussnewtonstep`, `EDStep` and `twostep`.
+At the moment, this runs tests in 2D and in 3D for each of the optimization methods `gaussnewtonstep`, `EDStep` and `twostep`. In addition, the `testEDRetraction.jl` tests the performance of the Euclidean distance retraction for Newton's method, Euler's method and `HomotopyContinuation.jl`.
