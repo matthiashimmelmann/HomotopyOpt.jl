@@ -7,7 +7,7 @@ max_indices = 5
 euler_array = ["newton", "explicit"]
 
 function savetofile(testDict)
-    open("testEDResults.txt", "w") do file
+    open("Data/testEDResults.txt", "w") do file
         for key in sort(collect(keys(testDict)))
             write(file, "$(key)\n")
             for key2 in keys(testDict[key])
@@ -271,6 +271,62 @@ end
 display(heatmap(dt, ds, heatmapdtds))
 =#
 
+println("\n")
+printstyled("Octahedron Test\n", color=:green)
+testDict["Octahedron"] = Dict()
+
+function toArray(p)
+    return vcat([p[i,j] for i in 1:3, j in 4:6]...)
+end
+
+@var x[1:3,1:6]
+p0 = [0 0 -1.; 1 -1 0; 1 1 0; -1 -1 0; -1 1 0; 0 0 1;]'
+edges = [(1,4), (1,5), (2,6), (3,6), (4,6), (5,6), (4,5), (2,5), (3,4)]
+xs = zeros(HomotopyContinuation.Expression,(3,6))
+xs[:,1:3] = p0[:,1:3]
+xs[:,4:6] = x[:,4:6]
+xvarz = vcat([x[i,j] for i in 1:3, j in 4:6]...)
+barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar[2]]).^2) for bar in edges]
+barequations = Vector{Expression}(rand(Float64,8,9)*barequations)
+p = toArray(p0)#+0.05*rand(Float64,9)
+nlp = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
+v = 10 .* real.(nlp[:,1] ./ (norm(nlp[:,1])*nlp[1,1]))
+G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz, barequations, 9, 1)
+EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; euler_step=euler_step, homotopyMethod="gaussnewton", amount_Euler_steps=i)
+println("HC.jl")
+#@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
+u = mean(@benchmark Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
+println("Solution: ", Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
+linear_steps = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation", print=true)
+testDict["Octahedron"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, linear_steps[2]), linear_steps[3]]
+R_pV = Base.copy(linear_steps[1])
+
+for euler in 1:length(euler_array)
+    testDict["Octahedron"][euler_array[euler]] = []
+    global index = 0
+    global method = euler_array[euler]
+    while index <= max_indices
+        euler_array[euler]=="newton" ? println("$(index) Newton Discretization Steps") : println("$(index) nontrivial Euler Steps")
+        local u = mean(@benchmark EDStep(index,method))
+        linear_steps = []
+        push!(linear_steps, EDStep(index,method)[2])
+        #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
+        #println("Solution: ", EDStep(index,method)[1])
+        global index = index+1
+        if !isapprox(norm(EDStep(index,method)[1]-R_pV), 0; atol=1e-5)
+            push!(testDict["Octahedron"][euler_array[euler]], ("x ($(u.time/(1000*1000)))", "x ($(u.memory/1000))", "x ($(sum(linear_steps)/length(linear_steps)))"))
+            continue
+        end
+        push!(testDict["Octahedron"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
+    end
+end
+for key in keys(testDict)
+    display(testDict[key])
+end
+
+savetofile(testDict)
+
+
 
 println("\n")
 euler_array = ["newton", "explicit"]
@@ -328,62 +384,6 @@ end
 
 savetofile(testDict)
 
-
-
-println("\n")
-printstyled("Octahedron Test\n", color=:green)
-testDict["Octahedron"] = Dict()
-
-function toArray(p)
-    return vcat([p[i,j] for i in 1:3, j in 4:6]...)
-end
-
-@var x[1:3,1:6]
-p0 = [0 0 -1.; 1 -1 0; 1 1 0; -1 -1 0; -1 1 0; 0 0 1;]'
-edges = [(1,4), (1,5), (2,6), (3,6), (4,6), (5,6), (4,5), (2,5), (3,4)]
-xs = zeros(HomotopyContinuation.Expression,(3,6))
-xs[:,1:3] = p0[:,1:3]
-xs[:,4:6] = x[:,4:6]
-xvarz = vcat([x[i,j] for i in 1:3, j in 4:6]...)
-barequations = [sum((xs[:,bar[1]]-xs[:,bar[2]]).^2) - sum((p0[:,bar[1]]-p0[:,bar[2]]).^2) for bar in edges]
-barequations = Vector{Expression}(rand(Float64,8,9)*barequations)
-p = toArray(p0)#+0.05*rand(Float64,9)
-nlp = nullspace(evaluate(differentiate(barequations, xvarz), xvarz=>p))
-v = 5 .* real.(nlp[:,1] ./ (norm(nlp[:,1])*nlp[1,1]))
-G = Euclidean_distance_retraction_minimal.ConstraintVariety(xvarz, barequations, 9, 1)
-EDStep = (i,euler_step)->Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; euler_step=euler_step, homotopyMethod="gaussnewton", amount_Euler_steps=i)
-println("HC.jl")
-#@btime Euclidean_distance_retraction_minimal.EDStep(G, p, v; homotopyMethod="HomotopyContinuation")
-u = mean(@benchmark Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
-println("Solution: ", Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation"))
-linear_steps = Euclidean_distance_retraction_minimal.EDStep_HC(G, p, v; homotopyMethod="HomotopyContinuation", print=true)
-testDict["Octahedron"]["HC.jl"] = [(u.time/(1000*1000), u.memory/1000, linear_steps[2]), linear_steps[3]]
-R_pV = Base.copy(linear_steps[1])
-
-for euler in 1:length(euler_array)
-    testDict["Octahedron"][euler_array[euler]] = []
-    global index = 0
-    global method = euler_array[euler]
-    while index <= max_indices
-        euler_array[euler]=="newton" ? println("$(index) Newton Discretization Steps") : println("$(index) nontrivial Euler Steps")
-        local u = mean(@benchmark EDStep(index,method))
-        linear_steps = []
-        push!(linear_steps, EDStep(index,method)[2])
-        #println("Average Linear Steps: ", sum(linear_steps)/length(linear_steps))
-        #println("Solution: ", EDStep(index,method)[1])
-        global index = index+1
-        if !isapprox(norm(EDStep(index,method)[1]-R_pV), 0; atol=1e-5)
-            push!(testDict["Octahedron"][euler_array[euler]], ("x ($(u.time/(1000*1000)))", "x ($(u.memory/1000))", "x ($(sum(linear_steps)/length(linear_steps)))"))
-            continue
-        end
-        push!(testDict["Octahedron"][euler_array[euler]], (u.time/(1000*1000), u.memory/1000, sum(linear_steps)/length(linear_steps)))
-    end
-end
-for key in keys(testDict)
-    display(testDict[key])
-end
-
-savetofile(testDict)
 
 
 
