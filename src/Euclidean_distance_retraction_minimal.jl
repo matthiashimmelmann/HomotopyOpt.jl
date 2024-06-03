@@ -173,6 +173,8 @@ function EDStep_HC(G::ConstraintVariety, p, v; homotopyMethod, euler_step="expli
             #equations = evaluate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
             if euler_step=="explicit"
                 global currentSolution = currentSolution .+ explicitEulerStep(G.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1); trivial=true)
+            #elseif euler_step=="newton"
+            #    global currentSolution = currentSolution .+ vcat(v*(1/(amount_Euler_steps+1)), [0. for _ in 1:(length(currentSolution)-length(v))])
             elseif euler_step=="RK2"
                 global currentSolution = currentSolution .+ RK2step(G.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1); trivial=true)
                 global linear_solves = linear_solves+1
