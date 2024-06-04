@@ -221,7 +221,7 @@ end
 
 savetofile(testDict)
 
-#=
+
 println("\n")
 printstyled("Enneper Surface Test\n", color=:green)
 @var x y z
@@ -234,28 +234,27 @@ nlp = nullspace(evaluate(differentiate([eqnz], xvarz), xvarz=>p))
 v1,v2 = 2.5*nlp[:,1],2.5*nlp[:,2]
 EDStep = (i,t,s)->Euclidean_distance_retraction_minimal.EDStep(G, p, t*v1+s*v2; homotopyMethod="gaussnewton", amount_Euler_steps=i)
 steps_list = []
-dt, ds = -1:0.1:1, -1:0.1:1
-heatmapdtds = zeros(length(dt), length(ds))
-for i in 1:length(dt), j in 1:length(ds)
-    #println("$((dt[i],ds[j]))")
-    global index = -1
-    linear_steps = []
-    truepoint,_ = Euclidean_distance_retraction_minimal.EDStep(G, p, dt[i]*v1+ds[j]*v2; homotopyMethod="HomotopyContinuation")
-    while index <= 6
-        try
-            res = EDStep(index,dt[i],ds[j])
-            if isapprox.(res[1],truepoint)
-                push!(linear_steps, res[2])
-            end
-        catch
-            push!(linear_steps, 1000)
-        end
-        global index = index+1
+xyz_vals = []
+for t in -2.3:0.002:2.3, s in -2.3:0.002:2.3
+    sols = real_solutions(solve(System(evaluate([f1], [x,y]=>[t,s]), variables=[z])))
+    for sol in sols
+        push!(xyz_vals, [t,s,sol[1]])
     end
-    heatmapdtds[i,j] = argmin(linear_steps)
 end
-display(heatmap(dt, ds, heatmapdtds))
-=#
+
+medial_points = compute_medial_points(eqnz, [x,y,z], xyz_vals; only_min=true)
+scatter!(plt, [pt[1] for pt in medial_points], [pt[2] for pt in medial_points], [pt[3] for pt in medial_points]; markersize=2, color=:black)
+#foreach(sol->plot!(plt, [sol[1], (p+v)[1]], [sol[2], (p+v)[2]], [sol[3], (p+v)[3]], arrow=false, color=:darkgrey, linewidth=5, label="", linestyle=:dot), relsols)
+#implicit_plot!(plt, (u,w) -> (u^3-u*w^2+w+1)^2*(u^2+w^2-1)+w^2-5; xlims=(-2.15,2.15), ylims=(-2.15,2.15), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=1, tickfontsize=16, labelfontsize=24, legend=false)
+
+#plot!(plt, [p[1],p[1]+v[1]], [p[2],p[2]+v[2]], [p[3],p[3]+v[3]], arrow=true, color=:green3, linewidth=6, label="")
+#foreach(sol->scatter!(plt, [sol[1]], [sol[2]], [sol[3]]; color=:magenta, markersize=9), relsols)
+#scatter!(plt, [R_pV[1]], [R_pV[2]], [R_pV[3]]; color=:red3, markersize=9)
+scatter!(plt, [p[1]], [p[2]], [p[3]]; color=:black, markersize=9)
+
+savefig(plt, "Images/EnneperSurface.png")
+display(plt)
+
 
 println("\n")
 printstyled("Octahedron Test\n", color=:green)
@@ -381,8 +380,6 @@ end
 
 savetofile(testDict)
 
-
-#=
 
 println("\n")
 printstyled("Connelly Test\n", color=:green)
