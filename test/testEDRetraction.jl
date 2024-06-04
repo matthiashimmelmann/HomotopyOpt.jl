@@ -33,11 +33,6 @@ function compute_medial_points(eqnz, vars, xy_vals; only_min=false)
     for tup in xy_vals
         n = evaluate(dg, vars=>tup)
         n = n ./ norm(n)
-        if tup[1]==0
-            display(opnorm(evaluate.(dH, vars=>tup)))
-            display(evaluate.(dH, vars=>tup))
-            display(evaluate(dg, vars=>tup))
-        end
         max_dist = norm(evaluate(dg, vars=>tup)) / opnorm(evaluate.(dH, vars=>tup))
         append!(medial_points, [tup+max_dist*n, tup-max_dist*n])
         push!(curpoint, tup)
@@ -156,14 +151,14 @@ relsols = [[1.2290197279520096, -1.427971334153828],
 #display(nullspace(evaluate(differentiate(eqnz, [x,y]), [x,y]=>R_pV)')'*(R_pV-(p+v)))
 plt = implicit_plot((u,w) -> (u^3-u*w^2+w+1)^2*(u^2+w^2-1)+w^2-5; xlims=(-2.75,2.75), ylims=(-2.5,2.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=1, tickfontsize=16, labelfontsize=24, legend=false)
 xy_vals = []
-for t in -2.65:0.0001:2.65
+for t in -2.65:0.001:2.65
     sols = real_solutions(solve(System(evaluate([f1], [x]=>[t]), variables=[y])))
     for sol in sols
         push!(xy_vals, [t,sol[1]])
     end
 end
 
-medial_points = compute_medial_points(f1, [x,y], xy_vals; only_min=true)
+medial_points = compute_medial_points(f1, [x,y], xy_vals; only_min=false)
 scatter!(plt, [pt[1] for pt in medial_points], [pt[2] for pt in medial_points]; markersize=2, color=:black)
 foreach(sol->plot!(plt, [sol[1], (p+v)[1]], [sol[2], (p+v)[2]], arrow=false, color=:darkgrey, linewidth=5, label="", linestyle=:dot), relsols)
 implicit_plot!(plt, (u,w) -> (u^3-u*w^2+w+1)^2*(u^2+w^2-1)+w^2-5; xlims=(-2.75,2.75), ylims=(-2.5,2.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=1, tickfontsize=16, labelfontsize=24, legend=false)
@@ -235,14 +230,15 @@ v1,v2 = 2.5*nlp[:,1],2.5*nlp[:,2]
 EDStep = (i,t,s)->Euclidean_distance_retraction_minimal.EDStep(G, p, t*v1+s*v2; homotopyMethod="gaussnewton", amount_Euler_steps=i)
 steps_list = []
 xyz_vals = []
-for t in -2.3:0.002:2.3, s in -2.3:0.002:2.3
-    sols = real_solutions(solve(System(evaluate([f1], [x,y]=>[t,s]), variables=[z])))
+for t in -2:0.025:2, s in -2:0.025:2
+    sols = real_solutions(solve(System(evaluate([eqnz], [x,y]=>[t,s]), variables=[z])))
     for sol in sols
         push!(xyz_vals, [t,s,sol[1]])
     end
 end
 
-medial_points = compute_medial_points(eqnz, [x,y,z], xyz_vals; only_min=true)
+medial_points = compute_medial_points(eqnz, [x,y,z], xyz_vals; only_min=false)
+plt = scatter([p[1]], [p[2]], [p[3]])
 scatter!(plt, [pt[1] for pt in medial_points], [pt[2] for pt in medial_points], [pt[3] for pt in medial_points]; markersize=2, color=:black)
 #foreach(sol->plot!(plt, [sol[1], (p+v)[1]], [sol[2], (p+v)[2]], [sol[3], (p+v)[3]], arrow=false, color=:darkgrey, linewidth=5, label="", linestyle=:dot), relsols)
 #implicit_plot!(plt, (u,w) -> (u^3-u*w^2+w+1)^2*(u^2+w^2-1)+w^2-5; xlims=(-2.15,2.15), ylims=(-2.15,2.15), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=1, tickfontsize=16, labelfontsize=24, legend=false)
