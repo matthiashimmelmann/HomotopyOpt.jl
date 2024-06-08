@@ -29,18 +29,25 @@ end
 function compute_medial_points(eqnz, vars, xy_vals; only_min=false)
     dg = differentiate(eqnz,vars)
     dH = differentiate(dg,vars)
-    medial_points, curpoint, axis = [], [], []
+    medial_points, curpoint, axis, axis2 = [], [], [], []
     for tup in xy_vals
         n = evaluate(dg, vars=>tup)
         n = n ./ norm(n)
         max_dist = norm(evaluate(dg, vars=>tup)) / opnorm(evaluate.(dH, vars=>tup))
+        max_dist2 = 1/norm(evaluate.(dH, vars=>tup)*pinv(evaluate(dg, vars=>tup))')
         append!(medial_points, [tup+max_dist*n, tup-max_dist*n])
         push!(curpoint, tup)
         push!(axis, max_dist)
+        push!(axis2, max_dist2)
+        if isapprox(tup[1],0)
+            display(max_dist2)
+        end
     end
-    mini = argmin(axis)
+    mini, mini2 = argmin(axis), argmin(axis2)
     println("mini: ", axis[mini])
     println("minipoint: ", curpoint[mini])
+    println("mini2: ", axis2[mini2])
+    println("minipoint2: ", curpoint[mini2])
     if only_min
         medial_points=[]
         for tup in xy_vals
@@ -151,7 +158,7 @@ relsols = [[1.2290197279520096, -1.427971334153828],
 #display(nullspace(evaluate(differentiate(eqnz, [x,y]), [x,y]=>R_pV)')'*(R_pV-(p+v)))
 plt = implicit_plot((u,w) -> (u^3-u*w^2+w+1)^2*(u^2+w^2-1)+w^2-5; xlims=(-2.75,2.75), ylims=(-2.5,2.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=1, tickfontsize=16, labelfontsize=24, legend=false)
 xy_vals = []
-for t in -2.65:0.001:2.65
+for t in -2.65:0.00025:2.65
     sols = real_solutions(solve(System(evaluate([f1], [x]=>[t]), variables=[y])))
     for sol in sols
         push!(xy_vals, [t,sol[1]])
@@ -249,7 +256,6 @@ scatter!(plt, [pt[1] for pt in medial_points], [pt[2] for pt in medial_points], 
 scatter!(plt, [p[1]], [p[2]], [p[3]]; color=:black, markersize=9)
 
 savefig(plt, "Images/EnneperSurface.png")
-display(plt)
 
 
 println("\n")

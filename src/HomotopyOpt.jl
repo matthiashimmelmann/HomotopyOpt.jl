@@ -1,6 +1,6 @@
 module HomotopyOpt
 
-import HomotopyContinuation: @var, evaluate, differentiate, start_parameters!, target_parameters!, track!, solve, real_solutions, solutions, solution, rand_subspace, randn, System, ParameterHomotopy, Expression, Tracker, Variable, track
+import HomotopyContinuation: @var, evaluate, differentiate, start_parameters!, target_parameters!, track!, solve, real_solutions, solutions, solution, rand_subspace, randn, System, ParameterHomotopy, Expression, Tracker, Variable, track, newton
 import LinearAlgebra: norm, transpose, qr, rank, normalize, pinv, eigvals, abs, eigvecs, svd, nullspace
 import Plots: plot, scatter!, Animation, frame
 import ForwardDiff: hessian, gradient
@@ -264,6 +264,50 @@ function gaussnewtonstep(G::ConstraintVariety, p, stepsize, v; tol=1e-8, initial
 	return q, true
 end
 
+
+
+
+function gaussnewtonstep_HC(G::ConstraintVariety, initial_point, q; max_iters)    
+    res = newton(
+        G.EDTracker.tracker.homotopy.F,
+        initial_point,
+        q;
+        max_iters = max_iters
+    )
+    #display(res)
+    return real.(res.x), res.iters
+end
+
+
+function EDStep_HC(G::ConstraintVariety, p, stepsize, v; homotopyMethod, amount_Euler_steps=5)
+    #initialtime = Base.time()
+    q0 = p#+1e-3*Basenormal[:,1]
+    start_parameters!(G.EDTracker.tracker, q0)
+    setStartSolution(G.EDTracker, vcat(p, [0. for _ in G.equations]))
+
+    if homotopyMethod=="HomotopyContinuation"
+        q = p+stepsize*v
+		target_parameters!(G.EDTracker.tracker, q)
+		tracker = track(G.EDTracker.tracker, G.EDTracker.startSolution)
+		result = solution(tracker)
+		if all(entry->Base.abs(entry.im)<1e-4, result)
+			return [entry.re for entry in result[1:length(p)]], true
+		else
+			return p, false
+		end
+	else
+		global q = p+stepsize*(1/(amount_Euler_steps+1))*v
+        global currentSolution = G.EDTracker.startSolution
+        global currentSolution, _ = gaussnewtonstep_HC(G, currentSolution, q; max_iters = amount_Euler_steps<=0 ? 500 : 10)
+        for step in 1:amount_Euler_steps
+            q = p+stepsize*((step+1)/(amount_Euler_steps+1))*v
+            global currentSolution, _ = gaussnewtonstep_HC(G, currentSolution, q; max_iters = amount_Euler_steps==step ? 500 : 10)
+        end
+        #println(norm(prev_sol-currentSolution), " ", norm(prediction-currentSolution))
+        return currentSolution[1:length(q)], true
+	end
+end
+
 #=
 We predict in the projected gradient direction and correct by solving a Euclidian Distance Problem
 =#
@@ -375,15 +419,15 @@ end
 #=
 Determines, which optimization algorithm to use
 =#
-function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v; initialtime, maxseconds, homotopyMethod)
+function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v; homotopyMethod)
 	if(whichstep=="twostep")
 		return(twostep(F, p, stepsize))
 	elseif whichstep=="onestep"
 		return(onestep(F, p, stepsize))
 	elseif whichstep=="gaussnewtonstep"
-		return(gaussnewtonstep(ConstraintVariety, p, stepsize, v; initialtime, maxseconds))
+		return(EDStep_HC(ConstraintVariety, p, stepsize, v; homotopyMethod="newton"))
 	elseif whichstep=="EDStep"
-		return(EDStep(ConstraintVariety, p, stepsize, v; homotopyMethod))
+		return(EDStep_HC(ConstraintVariety, p, stepsize, v; homotopyMethod))
 	else
 		throw(error("A step method needs to be provided!"))
 	end
