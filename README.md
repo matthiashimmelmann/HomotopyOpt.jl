@@ -49,4 +49,4 @@ watch(result)
 ```
 which produces the following output:
 
-![](https://github.com/matthiashimmelmann/HomotopyOpt.jl/blob/firstbranch/test/watch1.661497754964e9.gif)
+![](https://github.com/matthiashimmelmann/HomotopyOpt.jl/blob/firstbranch/test/Images/watch1.661497754964e9.gif)
