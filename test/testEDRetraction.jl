@@ -26,24 +26,26 @@ function savetofile(testDict)
 end
 
 
-function compute_medial_points(eqnz, vars, xy_vals; only_min=false)
-    dg = differentiate(eqnz,vars)
-    dH = differentiate(dg,vars)
+function compute_medial_points(eqnz, vars, xy_vals; only_min=false, print=false)
+    dg = [differentiate(eqn,vars) for eqn in eqnz]
+    dH = [differentiate(eq,vars) for eq in dg]
+    display(dH)
     medial_points, curpoint, axis, axis2 = [], [], [], []
     for tup in xy_vals
-        n = evaluate(dg, vars=>tup)
-        n = n ./ norm(n)
-        max_dist = norm(evaluate(dg, vars=>tup)) / opnorm(evaluate.(dH, vars=>tup))
-        max_dist2 = 1/norm(evaluate.(dH, vars=>tup)*pinv(evaluate(dg, vars=>tup))')
-        append!(medial_points, [tup+max_dist*n, tup-max_dist*n])
+        n = evaluate.(dg, vars=>tup)
+        n = [n[i] ./ norm(n[i]) for i in 1:length(n)]
+        max_dist = 1/length(dg)*sum(norm(evaluate(dg[i], vars=>tup)) / opnorm(evaluate.(dH[i], vars=>tup)) for i in 1:length(dg))
+        max_dist2 = 1/length(dg)*sum(1/norm(pinv(evaluate(dg[i], vars=>tup))*evaluate.(dH[i], vars=>tup)) for i in 1:length(dg))
+        append!(medial_points, [tup+max_dist*n[1], tup-max_dist*n[1]])
         push!(curpoint, tup)
         push!(axis, max_dist)
         push!(axis2, max_dist2)
-        if isapprox(tup[1],0)
-            display(max_dist2)
+        if tup[1]>0.65 && tup[1]<0.8 && tup[2]<0 && print
+            #display(max_dist)
+            #println("")
         end
     end
-    mini, mini2 = argmin(axis), argmin(axis2)
+    global mini = argmin(axis)
     println("mini: ", axis[mini])
     println("minipoint: ", curpoint[mini])
     println("mini2: ", axis2[mini2])
@@ -53,12 +55,80 @@ function compute_medial_points(eqnz, vars, xy_vals; only_min=false)
         for tup in xy_vals
             n = evaluate(dg, vars=>tup)
             n = n ./ norm(n)
-            max_dist = norm(evaluate(dg, vars=>tup)) / opnorm(evaluate.(dH, vars=>tup))
-            append!(medial_points, [tup+mini*n, tup-mini*n])
+            append!(medial_points, [tup+axis[mini]*n, tup-axis[mini]*n])
         end
     end
-    return medial_points
+    return medial_points, curpoint, axis
 end
+
+
+plt = implicit_plot((u,w) -> w-u^2; xlims=(-1.5,1.5), ylims=(-0.25,2.25), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=0.5, tickfontsize=16, labelfontsize=24, legend=false)
+implicit_plot!(plt,(u,w) -> (w+0.25*1/sqrt(1+4*u^2))-(u-0.25*2*u/sqrt(1+4*u^2))^2; xlims=(-1.5,1.5), ylims=(-0.25,2.25), linewidth=5, linecolor=:gray, grid=false, label="", size=(800,800), aspect_ratio=0.5, tickfontsize=16, labelfontsize=24, legend=false)
+implicit_plot!(plt,(u,w) -> (w-0.25*1/sqrt(1+4*u^2))-(u+0.25*2*u/sqrt(1+4*u^2))^2; xlims=(-1.5,1.5), ylims=(-0.25,2.25), linewidth=5, linecolor=:gray, grid=false, label="", size=(800,800), aspect_ratio=0.5, tickfontsize=16, labelfontsize=24, legend=false)
+display(plt)
+wait(5)
+
+printstyled("Bean Curve Test\n", color=:green)
+@var x y
+eq =  [(x^2+y^2)^2-(x^3-y^3)-0.01]
+xy_vals = []
+for s in -3:0.001:3
+    sols = real_solutions(solve(System(evaluate(eq,[x]=>[s]), variables=[y])))
+    for sol in sols
+        push!(xy_vals, [s,sol[1]])
+    end
+    sols = real_solutions(solve(System(evaluate(eq,[y]=>[s]), variables=[x])))
+    for sol in sols
+        push!(xy_vals, [sol[1],s])
+    end
+end
+display(xy_vals)
+medial_points, curpoint, axis = compute_medial_points(eq, [x,y], xy_vals; only_min=false, print=true)
+
+plt = implicit_plot((u,w) -> (u^2+w^2)^2-(u^3-w^3)-0.01; xlims=(-0.6,1.25), ylims=(-1.3,0.55), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=0.5, tickfontsize=16, labelfontsize=24, legend=false)
+scatter!(plt, [pt[1] for pt in medial_points], [pt[2] for pt in medial_points]; markersize=2, color=:black)
+implicit_plot!(plt, (u,w) -> (u^2+w^2)^2-(u^3-w^3)-0.01; xlims=(-0.6,1.25), ylims=(-1.3,0.55), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=0.5, tickfontsize=16, labelfontsize=24, legend=false)
+
+
+savefig(plt, "Images/BeanCurve.png")
+
+
+
+@polyvar x y
+f = (x^2+y^2)^2-(x^3-y^3)-0.01
+@polyvar p[1:2] q[1:2] # define variables for the points p and q
+f_p = subs(f, [x;y] => p)
+f_q = subs(f, [x;y] => q)
+∇_p = differentiate(f_p, p)
+∇_q = differentiate(f_q, q)
+bn_eqs = [f_p; det([∇_p p-q]); f_q; det([∇_q p-q])]
+
+bn_result = solve(bn_eqs, start_system = :polyhedral)
+
+bn_pairs = real_solutions(nonsingular(bn_result))
+ρ = map(s -> norm(s[1:2] - s[3:4]), bn_pairs)
+ρ_min, ρ_min_ind = findmin(ρ)
+display(ρ_min)
+
+∇ = differentiate(f, [x;y]) # the gradient
+H = differentiate(∇, [x;y]) # the Hessian
+
+g = ∇ ⋅ ∇
+v = [-∇[2]; ∇[1]]
+h = v' * H * v
+dg = differentiate(g, [x;y])
+dh = differentiate(h, [x;y])
+
+∇σ = g .* dh - ((3/2) * h).* dg
+
+F₂ = [v ⋅ ∇σ; f]
+
+curv_result = solve(F₂, start_system = :polyhedral)
+
+curv_pts = real_solutions(nonsingular(curv_result))
+σs = [h(curv) / g(curv)^(3/2) for curv in curv_pts]
+σ_max, σ_max_ind = findmax(σs)
+display(1/σ_max)
 
 
 printstyled("Double Parabola Test\n", color=:green)
@@ -76,7 +146,7 @@ relsols = [sol[1:2] for sol in real_solutions(HomotopyContinuation.solve(System(
 #display(nullspace(evaluate(differentiate(eqnz, [x,y]), [x,y]=>R_pV)')'*(R_pV-(p+v)))
 plt = implicit_plot((u,w) -> (w-u^2-1)*(w+u^2+1); xlims=(-2.5,2.5), ylims=(-3.5,6.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=0.5, tickfontsize=16, labelfontsize=24, legend=false)
 xy_vals = vcat([[t, t^2+1] for t in -2.5:0.00025:2.5], [[t, -t^2-1] for t in -2.5:0.00025:2.5])
-medial_points = compute_medial_points(eqnz, [x,y], xy_vals)
+medial_points,_,_ = compute_medial_points([eqnz], [x,y], xy_vals)
 scatter!(plt, [pt[1] for pt in medial_points], [pt[2] for pt in medial_points]; markersize=2, color=:black)
 implicit_plot!(plt, (u,w) -> (w-u^2-1)*(w+u^2+1); xlims=(-2.5,2.5), ylims=(-3.5,6.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=0.5, tickfontsize=16, labelfontsize=24, legend=false)
 
@@ -158,14 +228,14 @@ relsols = [[1.2290197279520096, -1.427971334153828],
 #display(nullspace(evaluate(differentiate(eqnz, [x,y]), [x,y]=>R_pV)')'*(R_pV-(p+v)))
 plt = implicit_plot((u,w) -> (u^3-u*w^2+w+1)^2*(u^2+w^2-1)+w^2-5; xlims=(-2.75,2.75), ylims=(-2.5,2.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=1, tickfontsize=16, labelfontsize=24, legend=false)
 xy_vals = []
-for t in -2.65:0.00025:2.65
+for t in -2.65:0.001:2.65
     sols = real_solutions(solve(System(evaluate([f1], [x]=>[t]), variables=[y])))
     for sol in sols
         push!(xy_vals, [t,sol[1]])
     end
 end
 
-medial_points = compute_medial_points(f1, [x,y], xy_vals; only_min=false)
+medial_points,_,_ = compute_medial_points([f1], [x,y], xy_vals; only_min=false)
 scatter!(plt, [pt[1] for pt in medial_points], [pt[2] for pt in medial_points]; markersize=2, color=:black)
 foreach(sol->plot!(plt, [sol[1], (p+v)[1]], [sol[2], (p+v)[2]], arrow=false, color=:darkgrey, linewidth=5, label="", linestyle=:dot), relsols)
 implicit_plot!(plt, (u,w) -> (u^3-u*w^2+w+1)^2*(u^2+w^2-1)+w^2-5; xlims=(-2.75,2.75), ylims=(-2.5,2.5), linewidth=5, color=:steelblue, grid=false, label="", size=(800,800), aspect_ratio=1, tickfontsize=16, labelfontsize=24, legend=false)

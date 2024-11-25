@@ -1,0 +1,30 @@
+DoubleParabola
+explicit
+0: x (0.0102511875)ms, x (5.008)kb, x (8.0) linear solves
+1: 0.08262588ms, 12.648kb, 20.0 linear solves
+2: x (0.1381405)ms, x (20.288)kb, x (17.0) linear solves
+3: x (0.19693217000000002)ms, x (27.928)kb, x (27.0) linear solves
+4: 0.26502184ms, 35.568kb, 41.0 linear solves
+5: 0.35693258ms, 43.208kb, 47.0 linear solves
+HC.jl
+0: 0.07609017ms, 0.896kb, 31 linear solves
+TrackerResult:
+ • return_code → success
+ • solution → ComplexF64[0.0 + 0.0im, 1.0 + 0.0im, -2.0 + 0.0im]
+ • t → 0.0 + 0.0im
+ • accuracy → 1.4968e-24
+ • accepted_steps → 31
+ • rejected_steps → 0
+ • extended_precision → false
+ • extended_precision_used → false
+ • ω → 0.23374
+ • μ → 2.2204e-16
+ • τ → 0.28125
+newton
+0: x (0.009520918)ms, x (4.624)kb, x (9.0) linear solves
+1: x (0.01608933)ms, x (8.864)kb, x (11.0) linear solves
+2: x (0.02114999)ms, x (13.104)kb, x (15.0) linear solves
+3: x (0.040871239999999996)ms, x (17.344)kb, x (28.0) linear solves
+4: 0.0441413ms, 21.584kb, 43.0 linear solves
+5: 0.046608830000000004ms, 25.824kb, 50.0 linear solves
+
