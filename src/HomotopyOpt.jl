@@ -579,7 +579,7 @@ function paralleltransport(vj, Tj, Ti)
     # transport vj ∈ Tj to become a vector ϕvj ∈ Ti
     # cols(Tj) give ONB for home tangent space, cols(Ti) give ONB for target tangent space
     U,_,Vt = svd( Ti' * Tj )
-    Oij = U * Vt # closest orthogonal matrix to the matrix (Ti' * Tj) comes from svd, remove \Sigma
+    Oij = U * Vt' # closest orthogonal matrix to the matrix (Ti' * Tj) comes from svd, remove \Sigma
     ϕvj = Ti * Oij * (Tj' * vj)
     return ϕvj
 end

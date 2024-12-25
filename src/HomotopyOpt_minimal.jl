@@ -295,12 +295,12 @@ end
 #=
 Determines, which optimization algorithm to use
 =#
-function stepchoice(ConstraintVariety, whichstep, stepsize, p, v; initialtime=initialtime, maxseconds=maxseconds)
+function stepchoice(ConstraintVariety, whichstep, stepsize, p, v)
 	if whichstep=="Algorithm 0"
-        q = EDStep(ConstraintVariety, p, stepsize, v; homotopyMethod="Algorithm 0", initialtime=initialtime, maxseconds=maxseconds)
+        q = EDStep(ConstraintVariety, p, stepsize, v; homotopyMethod="Algorithm 0")
 		return q
     elseif whichstep=="Algorithm 0.1"
-        q = EDStep(ConstraintVariety, p, stepsize, v; homotopyMethod="Algorithm 0.1", initialtime=initialtime, maxseconds=maxseconds)
+        q = EDStep(ConstraintVariety, p, stepsize, v; homotopyMethod="Algorithm 0.1")
         return q    
 	elseif whichstep=="Algorithm 1"
         q = EDStep(ConstraintVariety, p, stepsize, v; homotopyMethod="Algorithm 1", initialtime=initialtime, maxseconds=maxseconds)
