@@ -577,7 +577,7 @@ end
 function minimize(p0::Vector{Float64}, tolerance::Float64,
                 G::SemialgebraicSet,
                 objectiveFunction::Function;
-                maxseconds=100, maxlocalsteps=3, initialstepsize=0.05, whichstep="gaussnewtonstep", initialtime = Base.time(), stepdirection = "gradientdescent", homotopyMethod = "HomotopyContinuation")
+                maxseconds=100, maxlocalsteps=3, initialstepsize=0.05, whichstep="EDStep", initialtime = Base.time(), stepdirection = "gradientdescent", homotopyMethod = "HomotopyContinuation")
 	#TODO Rework minimality: We are not necessarily at a minimality, if resolveSingularity does not find any better point. => first setequations, then ismin
     p = copy(p0) # initialize before updating `p` below
     ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
