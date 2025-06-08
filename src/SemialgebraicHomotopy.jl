@@ -50,7 +50,7 @@ mutable struct SemialgebraicSet
 	EDTracker
 
 	# Given variables and HomotopyContinuation-based equations, sample points from the variety and return the corresponding struct
-	function SemialgebraicSet(variables::Vector{Variable},equalities::Vector{Polynomial}, inequalities::Vector{Polynomial}, N::Int, d::Int, numsamples::Int)
+	function SemialgebraicSet(variables::Vector{Variable}, equalities::Vector{Polynomial}, inequalities::Vector{Polynomial}, N::Int, d::Int, numsamples::Int)
         fullequations = vcat(equalities,inequalities)
         jacobian = hcat([differentiate(eq, varz) for eq in fullequations]...)
         randL = nothing
@@ -78,7 +78,7 @@ mutable struct SemialgebraicSet
 
 		@var u[1:N]
 		@var λ[1:length(fullequations)]
-		Lagrange = sum((varz-u).^2) + sum(λ.*fullequations)
+		Lagrange = sum((varz-u).^2) + sum(λ.*equalities)
 		∇Lagrange = differentiate(Lagrange, vcat(varz,λ))
 		EDSystem = System(∇Lagrange, variables=vcat(varz,λ), parameters=u)
 		p0 = randn(Float64, N)
@@ -86,6 +86,27 @@ mutable struct SemialgebraicSet
 		EDTracker = TrackerWithStartSolution(Tracker(H),[])
         new(varz,eqnz,ineqnz,fullequations,jacobian,N,d,Ωs,EDTracker)
     end
+
+    # Given implicit equations, sample points from the corresponding variety and return the struct
+    function SemialgebraicSet(equalities::Vector{Expression}, inequalities::Vector{Expression}, N::Int, d::Int, numsamples::Int)
+        @var varz[1:N]
+        algeqnz = eqnz(varz)
+		if typeof(algeqnz) != Vector{Expression}
+			algeqnz = [algeqnz]
+		end
+		SemialgebraicSet(varz, equalities, inequalities, N, d, numsamples)
+    end
+
+	# Implicit Equations, no sampling
+    function SemialgebraicSet(equalities::Vector{Expression}, inequalities::Vector{Expression}, N::Int, d::Int)
+		SemialgebraicSet(eqnz, ineqnz, N, d, 0)
+	end
+
+    # HomotopyContinuation-based expressions and variables, no sanples
+    function SemialgebraicSet(varz,equalities::Vector{Expression}, inequalities::Vector{Expression}, N::Int,d::Int)
+		SemialgebraicSet(varz, equalities, inequalities, N::Int, d::Int, 0)
+    end
+
 end
 
 #=
@@ -100,27 +121,15 @@ Add Samples to an already existing ConstraintVariety
 =#
 function setEquationsAtp!(G::ConstraintVariety, p; tol=1e-5)
 	jacobianRank = rank(evaluate.(G.jacobian, G.variables=>p); atol=tol)
-	eqnz = G.fullequations
-	if length(eqnz) + (G.ambientdimension-jacobianRank) > G.ambientdimension
-		eqnz = randn(Float64, jacobianRank, length(eqnz))*eqnz
-	end
-	setfield!(G, :equations, eqnz)
+	eqnz = G.equalities
+	setfield!(G, :equalities, G.equalities)
 	setfield!(G, :dimensionofvariety, (G.ambientdimension-jacobianRank))
-
-	@var u[1:G.ambientdimension]
-	@var λ[1:length(eqnz)]
-	Lagrange = sum((G.variables-u).^2) + sum(λ.*eqnz)
-	∇Lagrange = differentiate(Lagrange, vcat(G.variables,λ))
-	EDSystem = System(∇Lagrange, variables=vcat(G.variables,λ), parameters=u)
-	H = ParameterHomotopy(EDSystem, start_parameters = p, target_parameters = p)
-	EDTracker = TrackerWithStartSolution(Tracker(H),[])
-	setfield!(G, :EDTracker, EDTracker)
 end
 
 #=
 Compute the system that we need for the onestep and twostep method
 =#
-function computesystem(p, G::ConstraintVariety,
+function computesystem(p, G::SemialgebraicSet,
                 evaluateobjectivefunctiongradient::Function)
 
     dgp = evaluate.(G.jacobian, G.variables => p)
@@ -154,83 +163,92 @@ end
 If we are at a point of slow progression / singularity we blow the point up to a sphere and check the intersections (witness sets) with nearby components
 for the sample with lowest energy
 =#
-function resolveSingularity(p, G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient; homotopyMethod=homotopyMethod)
-	if length(p)>10
-		q = takelocalsteps(p,5e-3,1e-10,G,Q,evaluateobjectivefunctiongradient; whichstep="gaussnewtonstep").allcomputedpoints[end]
-		#EDStep(G,p,5e-4,-evaluateobjectivefunctiongradient(p)[2]; homotopyMethod=homotopyMethod)
-		#q = gaussnewtonstep(G, p, 5e-4, -evaluateobjectivefunctiongradient(p)[2]; initialtime=initialtime, maxseconds=maxseconds)[1]
-		if Q(q) < Q(p) 
-			return(q, true) 
-		else
-			for _ in 1:4
-				q = gaussnewtonstep_new(G, p + 1e-3*randn(Float64, length(p)), 0, [0. for _ in 1:length(p)])
-				if Q(q) < Q(p)
-					return(q, true) 
-				end
-			end
-		end		
-		return(p, false)
-	end
-
-	eqn = G.fullequations
-	var = G.variables
-	d = G.dimensionofvariety
-	sphereAtPoint = sum((var.-p).^2)-0.0001
-	samples = []
-	try
-		F = System(vcat(eqn,[sphereAtPoint]))
-		rel = solve(F; show_progress=false)
-		samples = real_solutions(rel)
-	catch e
-		println("dimension -1: ", e)
-	end
-	for j in 1:d-1
-		try
-			a = rand(Float64, length(var), j)
-			L = a'*var-a'*p
-			F = System( vcat(eqn,[sphereAtPoint],L) )
-			append!(samples, real_solutions(solve(F; show_progress=false)))
-		catch e
-			println("dimension -$(j+1): ", e)
-		end
-	end
-
-	#TODO Alternative for too large to sample varieties.
-	#Random directions? Sampling via Gaussnewton? Gaussnewtonstep altogether?
-	minimumvalue = Q(p)
-	q = Base.copy(p)
-	for sol in samples
-		if Q(sol)<minimumvalue
-			minimumvalue = Q(sol)
-			q = sol
-		end
-	end
-
-	if q==p && !isempty(samples)
-		#In this case, the singularity is optimal in a sense
-		return(p,false)
-	else
-		return(q,true)
-	end
+function resolveSingularity(p, G::SemialgebraicSet, Q::Function, evaluateobjectivefunctiongradient; homotopyMethod=homotopyMethod)
+    q = takelocalsteps(p,5e-3,1e-10,G,Q,evaluateobjectivefunctiongradient; whichstep="gaussnewtonstep").allcomputedpoints[end]
+    #EDStep(G,p,5e-4,-evaluateobjectivefunctiongradient(p)[2]; homotopyMethod=homotopyMethod)
+    #q = gaussnewtonstep(G, p, 5e-4, -evaluateobjectivefunctiongradient(p)[2]; initialtime=initialtime, maxseconds=maxseconds)[1]
+    if Q(q) < Q(p) 
+        return(q, true) 
+    else
+        for _ in 1:10
+            q = gaussnewtonstep(G, p + 1e-3*randn(Float64, length(p)))
+            if Q(q) < Q(p)
+                return(q, true) 
+            end
+        end
+    end		
+    return(p, false)
 end
 
 #=
  We predict in the projected gradient direction and correct by using the Gauss-Newton method
 =#
-function gaussnewtonstep(G::ConstraintVariety, p, stepsize, v; tol=1e-8, initialtime, maxseconds)
-	global q = p+stepsize*v
-	global damping = 0.5
+function gaussnewtonstep(G::SemialgebraicSet, p; tol=1e-12, initialtime, maxseconds)
+	global q = Base.copy(p)
+	global damping = 0.2
 	global qnew = q
-	jac = hcat([differentiate(eq, G.variables) for eq in G.fullequations]...)
-	while(norm(evaluate.(G.fullequations, G.variables=>q)) > tol)
+    equations = Base.copy(G.equalities)
+	jac = G.jacobian
+	while(norm(evaluate.(G.equalities, G.variables=>q)) > tol)
 		J = Matrix{Float64}(evaluate.(jac, G.variables=>q))
-		global qnew = q .- damping*pinv(J)'*evaluate.(G.fullequations, G.variables=>q)
-		if norm(evaluate.(G.fullequations, G.variables=>qnew)) <= norm(evaluate.(G.fullequations, G.variables=>q))
-			global damping = damping*1.2
-		else
-			global damping = damping/2
+        # Randomize the linear system of equations
+        stress_dimension = size(nullspace(J'; atol=1e-8))[2]
+        if stress_dimension > 0
+            rand_mat = randn(Float64, length(G.equalities) - stress_dimension, length(G.equalities))
+            equations = rand_mat*G.equalities
+            J = rand_mat*J
+        else
+            equations = G.equalities
+        end
+
+        # damped Newton's method
+        qnew = q - damping * (J \ evaluate(equations, G.variables=>q))
+        if norm(evaluate(G.equalities, G.variables=>qnew)) < norm(evaluate(G.equalities, G.variables=>q))
+            global damping = damping*1.2
+        else
+            global damping = damping/2
+        end
+        if damping < 1e-14 || Base.time()-start_time > length(q)/10
+            throw("Newton's method did not converge in time.")
+        end
+        q = qnew
+        if damping > 1
+            global damping = 1
+        end
+		if time()-initialtime > maxseconds
+			return p, false
 		end
-		q = qnew
+	end
+
+    violated_indices = [i for (i,eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<0]
+    new_equations = vcat(G.equalities, G.inequalities[violated_indices])
+    jac = G.jacobian[:,vcat(1:length(G.equalities), violated_indices)]
+    while(norm(evaluate.(new_equations, G.variables=>q)) > tol)
+		J = Matrix{Float64}(evaluate.(jac, G.variables=>q))
+        stress_dimension = size(nullspace(J'; atol=1e-8))[2]
+        # Randomize the linear system of equations
+        if stress_dimension > 0
+            rand_mat = randn(Float64, length(new_equations) - stress_dimension, length(new_equations))
+            equations = rand_mat*new_equations
+            J = rand_mat*J
+        else
+            equations = new_equations
+        end
+
+        # damped Newton's method
+        qnew = q - damping * (J \ evaluate(equations, G.variables=>q))
+        if norm(evaluate(new_equations, G.variables=>qnew)) < norm(evaluate(new_equations, G.variables=>q))
+            global damping = damping*1.2
+        else
+            global damping = damping/2
+        end
+        if damping < 1e-14 || Base.time()-start_time > length(q)/10
+            throw("Newton's method did not converge in time.")
+        end
+        q = qnew
+        if damping > 1
+            global damping = 1
+        end
 		if time()-initialtime > maxseconds
 			return p, false
 		end
@@ -238,41 +256,7 @@ function gaussnewtonstep(G::ConstraintVariety, p, stepsize, v; tol=1e-8, initial
 	return q, true
 end
 
-function gaussnewtonstep_new(G::ConstraintVariety, p, stepsize, v)
-    res = newton(
-        System(G.equations; variables=G.variables),
-        p+stepsize*v
-    )
-    #display(res)
-    return real.(res.x)
-end
-
-
-
-
-function gaussnewtonstep_HC(G::ConstraintVariety, initial_point, q; max_iters)    
-	res = newton(
-        G.EDTracker.tracker.homotopy.F.interpreted.system,
-        initial_point,
-        q;
-        max_iters = max_iters
-    )
-    if any(isnan.(res.x))
-		J = evaluate.(differentiate(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, G.EDTracker.tracker.homotopy.F.interpreted.system.variables), vcat(G.EDTracker.tracker.homotopy.F.interpreted.system.variables, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters) => vcat(initial_point,q))
-		currentSolution = initial_point
-		iters = 0
-		while(norm(evaluate.(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, vcat(G.EDTracker.tracker.homotopy.F.interpreted.system.variables, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters)=>vcat(currentSolution,q))) > 1e-10 && iters < max_iters)
-			currentSolution =  currentSolution .- pinv(J) * evaluate.(G.EDTracker.tracker.homotopy.F.interpreted.system.expressions, vcat(G.EDTracker.tracker.homotopy.F.interpreted.system.variables, G.EDTracker.tracker.homotopy.F.interpreted.system.parameters)=>vcat(currentSolution,q))
-			iters = iters+1
-		end
-		return currentSolution, iters
-	else	
-		return real.(res.x), res.iters
-	end
-end
-
-
-function EDStep_HC(G::ConstraintVariety, p, stepsize, v; homotopyMethod, amount_Euler_steps=4)
+function EDStep_HC(G::SemialgebraicSet, p, stepsize, v; homotopyMethod, amount_Euler_steps=4)
     #initialtime = Base.time()
     q0 = p#+1e-3*Basenormal[:,1]
     start_parameters!(G.EDTracker.tracker, q0)
@@ -283,50 +267,21 @@ function EDStep_HC(G::ConstraintVariety, p, stepsize, v; homotopyMethod, amount_
 		target_parameters!(G.EDTracker.tracker, q)
 		tracker = track(G.EDTracker.tracker, G.EDTracker.startSolution)
 		result = solution(tracker)
-		if all(entry->Base.abs(entry.im)<1e-4, result)
-			return [entry.re for entry in result[1:length(p)]], true
+		if all(entry->Base.abs(entry.im)<1e-6, result)
+			return gaussnewtonstep(G, [entry.re for entry in result[1:length(p)]]; tol=1e-12, initialtime, maxseconds)
 		else
 			return p, false
 		end
 	else
 		global q = p+stepsize*(1/(amount_Euler_steps+1))*v
         global currentSolution = G.EDTracker.startSolution
-        global currentSolution, _ = gaussnewtonstep_HC(G, currentSolution, q; max_iters = amount_Euler_steps<=0 ? 500 : 10)
+        global currentSolution, _ = gaussnewtonwstep(G, q; max_iters = amount_Euler_steps<=0 ? 500 : 10)
         for step in 1:amount_Euler_steps
             q = p+stepsize*((step+1)/(amount_Euler_steps+1))*v
-            global currentSolution, _ = gaussnewtonstep_HC(G, currentSolution, q; max_iters = amount_Euler_steps==step ? 500 : 10)
+            global currentSolution, _ = gaussnewtonstep(G, q; max_iters = amount_Euler_steps==step ? 500 : 10)
 		end
         #println(norm(prev_sol-currentSolution), " ", norm(prediction-currentSolution))
         return currentSolution[1:length(q)], true
-	end
-end
-
-#=
-We predict in the projected gradient direction and correct by solving a Euclidian Distance Problem
-=#
-function EDStep(ConstraintVariety, p, stepsize, v; homotopyMethod, tol=1e-8)
-	q = p+stepsize*v
-	if homotopyMethod=="HomotopyContinuation"
-		target_parameters!(ConstraintVariety.EDTracker.tracker, q)
-		tracker = track(ConstraintVariety.EDTracker.tracker, ConstraintVariety.EDTracker.startSolution)
-		result = solution(tracker)
-		if all(point->Base.abs(point.im)<1e-4, result)
-			return [point.re for point in result[1:length(p)]], true
-		else
-			return p, false
-		end
-	elseif homotopyMethod=="Newton"
-		currentSolution = vcat(q, ConstraintVariety.EDTracker.startSolution[length(q)+1:end])
-		variables = ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
-		equations = evaluate(ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions, ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q)
-		jac = hcat([differentiate(eq, variables) for eq in equations]...)
-		while(norm(evaluate.(equations, variables=>currentSolution)) > tol)
-			J = evaluate.(jac, variables=>currentSolution)
-			currentSolution =  currentSolution .- J \ evaluate.(equations, variables=>currentSolution)
-		end
-		return currentSolution[1:length(q)], true
-	else
-		throw(error("Homotopy Method not supported!"))
 	end
 end
 
@@ -375,10 +330,30 @@ function twostep(F, p, stepsize)
     return q, success
 end
 
+
+#=
+Determines, which optimization algorithm to use
+=#
+function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v; homotopyMethod)
+	if(whichstep=="twostep")
+		return(twostep(F, p, stepsize))
+	elseif whichstep=="onestep"
+		return(onestep(F, p, stepsize))
+	elseif whichstep=="gaussnewtonstep"||whichstep=="Algorithm 0"
+		return(gaussnewtonstep(ConstraintVariety, p, stepsize, v), true)
+	elseif whichstep=="gaussnewtonretraction"||whichstep=="newton"||whichstep=="Algorithm 1"
+		return(EDStep_HC(ConstraintVariety, p, stepsize, v; homotopyMethod="newton"))
+	elseif whichstep=="EDStep"||whichstep=="Algorithm 2"
+		return(EDStep_HC(ConstraintVariety, p, stepsize, v; homotopyMethod))
+	else
+		throw(error("A step method needs to be provided!"))
+	end
+end
+
 #=
  Checks, whether p is a local minimum of the objective function Q w.r.t. the tangent space Tp
 =#
-function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiongradient, Tp, v, p::Vector; tol=1e-6, criticaltol=1e-3)
+function isMinimum(G::SemialgebraicSet, Q::Function, evaluateobjectivefunctiongradient, Tp, v, p::Vector; tol=1e-6, criticaltol=1e-3)
 	H = hessian(Q, p)
 	HConstraints = [evaluate.(differentiate(differentiate(eq, G.variables), G.variables), G.variables=>p) for eq in G.fullequations]
 	Qalg = Q(p)+(G.variables-p)'*gradient(Q,p)+0.5*(G.variables-p)'*H*(G.variables-p) # Taylor Approximation of x, since only the Hessian is of interest anyway
@@ -409,30 +384,12 @@ function isMinimum(G::ConstraintVariety, Q::Function, evaluateobjectivefunctiong
 	end
 end
 
-#=
-Determines, which optimization algorithm to use
-=#
-function stepchoice(F, ConstraintVariety, whichstep, stepsize, p, v; homotopyMethod)
-	if(whichstep=="twostep")
-		return(twostep(F, p, stepsize))
-	elseif whichstep=="onestep"
-		return(onestep(F, p, stepsize))
-	elseif whichstep=="gaussnewtonstep"||whichstep=="Algorithm 0"
-		return(gaussnewtonstep_new(ConstraintVariety, p, stepsize, v), true)
-	elseif whichstep=="gaussnewtonretraction"||whichstep=="newton"||whichstep=="Algorithm 1"
-		return(EDStep_HC(ConstraintVariety, p, stepsize, v; homotopyMethod="newton"))
-	elseif whichstep=="EDStep"||whichstep=="Algorithm 2"
-		return(EDStep_HC(ConstraintVariety, p, stepsize, v; homotopyMethod))
-	else
-		throw(error("A step method needs to be provided!"))
-	end
-end
 
 #=
 Use line search with the strong Wolfe condition to find the optimal step length.
 This particular method can be found in Nocedal & Wright: Numerical Optimization
 =#
-function backtracking_linesearch(Q::Function, F::System, G::ConstraintVariety, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; whichstep="EDStep", maxstepsize=100.0, initialtime, maxseconds, homotopyMethod="HomotopyContinuation", r=1e-4, s=0.9)
+function backtracking_linesearch(Q::Function, F::System, G::SemialgebraicSet, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; whichstep="EDStep", maxstepsize=100.0, initialtime, maxseconds, homotopyMethod="HomotopyContinuation", r=1e-4, s=0.9)
 	Basenormal, _, basegradient, _ = get_NTv(p0, G, evaluateobjectivefunctiongradient)
 	α = [0, stepsize]
 	p = Base.copy(p0)
@@ -572,7 +529,7 @@ end
 to determine the optimal step size to go along the search direction
 WARNING This is redundant and can be merged with findminima
 =#
-function takelocalsteps(p, ε0, tolerance, G::ConstraintVariety,
+function takelocalsteps(p, ε0, tolerance, G::SemialgebraicSet,
                 objectiveFunction::Function,
                 evaluateobjectivefunctiongradient::Function;
                 maxsteps=3, maxstepsize=2.5, decreasefactor=2.2, initialtime = Base.time(), maxseconds = 100, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
@@ -621,6 +578,7 @@ end
  Output object of the method `findminima`
 =#
 struct OptimizationResult
+    is_minimization
     computedpoints
     initialpoint
     initialstepsize
@@ -629,10 +587,10 @@ struct OptimizationResult
     lastlocalstepsresult
     constraintvariety
     objectivefunction
-	lastpointisminimum
+	lastpointisoptimum
 
-    function OptimizationResult(ps,p0,ε0,tolerance,converged,lastLSResult,G,Q,lastpointisminimum)
-        new(ps,p0,ε0,tolerance,converged,lastLSResult,G,Q,lastpointisminimum)
+    function OptimizationResult(is_minimization,ps,p0,ε0,tolerance,converged,lastLSResult,G,Q,lastpointisoptimum)
+        new(is_minimization,ps,p0,ε0,tolerance,converged,lastLSResult,G,Q,lastpointisoptimum)
     end
 end
 
@@ -640,8 +598,8 @@ end
  The main function of this package. Given an initial point, a tolerance, an objective function and a constraint variety,
  we try to find the objective function's closest local minimum to the initial guess.
 =#
-function findminima(p0, tolerance,
-                G::ConstraintVariety,
+function minimize(p0, tolerance,
+                G::SemialgebraicSet,
                 objectiveFunction::Function;
                 maxseconds=100, maxlocalsteps=3, initialstepsize=0.05, whichstep="EDStep", initialtime = Base.time(), stepdirection = "gradientdescent", homotopyMethod = "HomotopyContinuation")
 	#TODO Rework minimality: We are not necessarily at a minimality, if resolveSingularity does not find any better point. => first setequations, then ismin
@@ -670,7 +628,7 @@ function findminima(p0, tolerance,
         # update LSR, only store the *last local run*
         lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, initialtime=initialtime, maxseconds=maxseconds, whichstep=whichstep, homotopyMethod=homotopyMethod)
 		global ε0 = lastLSR.newsuggestedstepsize # update and try again!
-		push!(ps, lastLSR.allcomputedpoints[end])
+		append!(ps, lastLSR.allcomputedpoints)
 		jacobian = evaluate.(differentiate(G.fullequations, G.variables), G.variables=>lastLSR.newsuggestedstartpoint)
 		jR = rank(jacobian; atol=tolerance^1.5)
         if lastLSR.converged
@@ -682,7 +640,7 @@ function findminima(p0, tolerance,
 				_, Tq, v1, _ = get_NTv(ps[end], G, evaluateobjectivefunctiongradient)
 				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v1, ps[end]; criticaltol=tolerance)
 				if optimality
-					return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+					return OptimizationResult(true,ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 				end
 				println("Resolving")
 				p, foundsomething = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient; homotopyMethod=homotopyMethod)
@@ -692,9 +650,9 @@ function findminima(p0, tolerance,
 
 				if foundsomething
 					optRes = findminima(p, tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime, homotopyMethod=homotopyMethod)
-					return OptimizationResult(vcat(ps, optRes.computedpoints),p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisminimum)
+					return OptimizationResult(true,vcat(ps, optRes.computedpoints),p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisoptimum)
 				end
-				return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+				return OptimizationResult(true,ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 			else
 				#setEquationsAtp!(G, ps[end]; tol=tolerance^1.5)
 				jacobianRank = rank(evaluate.(G.jacobian, G.variables=>p); atol=tolerance^2)
@@ -703,9 +661,9 @@ function findminima(p0, tolerance,
 				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v1, ps[end]; criticaltol=tolerance)
 				if !optimality
 					optRes = findminima(ps[end], tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
-					return OptimizationResult(vcat(ps, optRes.computedpoints), p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisminimum)
+					return OptimizationResult(true,vcat(ps, optRes.computedpoints), p0, lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisoptimum)
 				end
-				return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+				return OptimizationResult(true,ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 			end
         else
 			# If we are in a point of slow progress or jacobian rank change, we search the neighborhood
@@ -717,23 +675,19 @@ function findminima(p0, tolerance,
 				_, Tq, v, _ = get_NTv(ps[end], G, evaluateobjectivefunctiongradient)
 				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v1, ps[end]; criticaltol=tolerance)
 				if optimality
-					return OptimizationResult(ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+					return OptimizationResult(true,ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 				end
 				println("Resolving")
 				p, foundsomething = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient; homotopyMethod=homotopyMethod)
-				#display(norm(p-ps[end]))
-				setEquationsAtp!(G, p; tol=tolerance^1.5)
-				jacobianRank = rank(evaluate.(G.jacobian, G.variables=>p); atol=tolerance^2)
-				setfield!(G, :dimensionofvariety, (G.ambientdimension-jacobianRank))
 				if foundsomething
 					maxseconds = maxseconds
 					optRes = findminima(p, tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=ε0, whichstep=whichstep, initialtime=initialtime, homotopyMethod=homotopyMethod)
-					return OptimizationResult(vcat(ps, optRes.computedpoints),p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisminimum)
+					return OptimizationResult(true,vcat(ps, optRes.computedpoints),p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisoptimum)
 				end
 			else
 				p = lastLSR.newsuggestedstartpoint
 			end
-			jacobian = evaluate.(differentiate(G.equations, G.variables), G.variables=>p)
+			jacobian = evaluate.(differentiate(G.equalities, G.variables), G.variables=>p)
 			jacRank = rank(jacobian; atol=tolerance^1.5)
             ε0 = lastLSR.newsuggestedstepsize # update and try again!
         end
@@ -742,12 +696,17 @@ function findminima(p0, tolerance,
 	display("We ran out of time... Try setting `maxseconds` to a larger value than $(maxseconds)")
 	optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, Tq, v1, ps[end]; criticaltol=tolerance)
 	#p, optimality = resolveSingularity(ps[end], G, objectiveFunction, evaluateobjectivefunctiongradient; homotopyMethod=homotopyMethod, initialtime=initialtime, maxseconds=maxseconds)
-	return OptimizationResult(ps,p0,ε0,tolerance,lastLSR.converged,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+	return OptimizationResult(true,ps,p0,ε0,tolerance,lastLSR.converged,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+end
+
+function maximize(p0, tolerance, G::SemialgebraicSet, objectiveFunction::Function; kwargs...)
+    optres = minimize(p0, tolerance, G, x->-objectiveFunction(x); kwargs...)
+    return OptimizationResult(false,optres.computedpoints,p0,optres.initialstepsize,tolerance,optres.converged,optres.lastlocalstepresult,G,objectiveFunction,optres.lastpointisoptimum)
 end
 
 # Below are functions `watch` and `draw`
 # to visualize low-dimensional examples
-function watch(result::OptimizationResult; totalseconds=5.0, fullx = [-1.5,1.5], fully = [-1.5,1.5], fullz = [-1.5,1.5],  kwargs...)
+function watch(result::OptimizationResult; totalseconds=6.0, fullx = [-1.5,1.5], fully = [-1.5,1.5], fullz = [-1.5,1.5],  kwargs...)
     ps = result.computedpoints
 	samples = result.constraintvariety.samples
 	if !isempty(samples)
@@ -768,11 +727,13 @@ function watch(result::OptimizationResult; totalseconds=5.0, fullx = [-1.5,1.5],
 			fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
 			fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
 		end
-        g1 = result.constraintvariety.equations[1] # should only be a curve in ambient R^2
+        g1 = x->evaluate(result.constraintvariety.equalities[1], result.constraintvariety.variables=>x) # should only be a curve in ambient R^2
         initplt = implicit_plot(g1, xlims=fullx, ylims=fully, legend=false)
-		initplt = scatter!(initplt, [ps[end][1]], [ps[end][2]], legend=false, markersize=5, color=:red, xlims=fullx, ylims=fully)
+        if result.lastpointisoptimum
+		    initplt = scatter!(initplt, [ps[end][1]], [ps[end][2]], legend=false, markersize=5, color=:red, xlims=fullx, ylims=fully)
+        end
         frame(anim)
-        for p in ps
+        for p in ps[1:end-1]
             # BELOW: only plot next point, delete older points during animation
             # plt = scatter!(initplt, [p[1]], [p[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
             # BELOW: keep old points during animation.
@@ -780,31 +741,8 @@ function watch(result::OptimizationResult; totalseconds=5.0, fullx = [-1.5,1.5],
             frame(anim)
         end
         return gif(anim, "watch$startingtime.gif", fps=framespersecond)
-    elseif dim == 3
-		if !isempty(samples)
-			fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
-			fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
-			fullz = [minimum([q[3] for q in vcat(samples, ps)]) - 0.05, maximum([q[3] for q in vcat(samples, ps)]) + 0.05]
-		end
-        g1 = result.constraintvariety.implicitequations[1]
-		#=
-        if(length(result.constraintvariety.implicitequations)>1)
-            # should be space curve
-            g2 = result.constraintvariety.implicitequations[2]
-            initplt = plot_implicit_curve(g1,g2; xlims = (fullx[1], fullx[2]), ylims = (fully[1], fully[2]), zlims = (fullz[1], fullz[2]), kwargs...)
-        else
-            #should be surface
-            initplt = plot_implicit_surface(g1;  xlims = (fullx[1], fullx[2]), ylims = (fully[1], fully[2]), zlims = (fullz[1], fullz[2]), kwargs...)
-        end
-        pointsys=[GLMakiePlottingLibrary.Point3f0(p) for p in ps]
-		GLMakiePlottingLibrary.scatter!(initplt, pointsys[end];
-					color=:red, markersize=40.0)
-        GLMakiePlottingLibrary.record(initplt, "watch$startingtime.gif", 1:length(pointsys); framerate = Int64(round(framespersecond))) do i
-			GLMakiePlottingLibrary.scatter!(initplt, pointsys[i];
-	                    color=:black, markersize=30.0)
-        end
-		=#
-        return(initplt)
+    else
+        throw(error("The only currently supported dimension is 2."))
     end
 end
 
@@ -818,15 +756,12 @@ function draw(result::OptimizationResult; kwargs...)
     if dim == 2
 		fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
         fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
-        g1 = result.constraintvariety.equations[1] # should only be a curve in ambient R^2
-        plt1 = plot() #implicit_plot(g1, xlims=fullx, ylims=fully, legend=false)
-        #f(x,y) = (x^4 + y^4 - 1) * (x^2 + y^2 - 2) + x^5 * y # replace this with `curve`
-        #plt1 = implicit_plot(curve; xlims=(-2,2), ylims=(-2,2), legend=false)
-        #plt2 = implicit_plot(curve; xlims=(-2,2), ylims=(-2,2), legend=false)
+        g1 = x->evaluate(result.constraintvariety.equalities[1], result.constraintvariety.variables=>x) # should only be a curve in ambient R^2
+        plt1 = implicit_plot(g1, xlims=fullx, ylims=fully, legend=false)
         localqs = result.lastlocalstepsresult.allcomputedpoints
         zoomx = [minimum([q[1] for q in localqs]) - 0.05, maximum([q[1] for q in localqs]) + 0.05]
         zoomy = [minimum([q[2] for q in localqs]) - 0.05, maximum([q[2] for q in localqs]) + 0.05]
-		plt2 = plot()#implicit_plot(g1, xlims=zoomx, ylims=zoomy, legend=false)
+        plt2 = implicit_plot(g1, xlims=zoomx, ylims=zoomy, legend=false)
         for q in ps
             plt1 = scatter!(plt1, [q[1]], [q[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
         end
@@ -837,41 +772,8 @@ function draw(result::OptimizationResult; kwargs...)
         pltvnorms = plot(vnorms, legend=false, title="norm(v) for last local steps")
         plt = plot(plt1,plt2,pltvnorms, layout=(1,3), size=(900,300) )
         return plt
-    elseif dim == 3
-		fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
-        fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
-        fullz = [minimum([q[3] for q in vcat(samples, ps)]) - 0.05, maximum([q[3] for q in vcat(samples, ps)]) + 0.05]
-		localqs = result.lastlocalstepsresult.allcomputedpoints
-		zoomx = [minimum([q[1] for q in ps]) - 0.05, maximum([q[1] for q in ps]) + 0.05]
-        zoomy = [minimum([q[2] for q in ps]) - 0.05, maximum([q[2] for q in ps]) + 0.05]
-        zoomz = [minimum([q[3] for q in ps]) - 0.05, maximum([q[3] for q in ps]) + 0.05]
-		#=
-        fig = GLMakiePlottingLibrary.Figure(resolution = (1450, 550))
-        ax1 = fig[1, 1] = GLMakiePlottingLibrary.AbstractPlotting.MakieLayout.LScene(fig, width=500, height=500, camera = GLMakiePlottingLibrary.cam3d!, raw = false, limits=GLMakiePlottingLibrary.FRect((fullx[1], fully[1], fullz[1]), (fullx[2]-fullx[1], fully[2]-fully[1], fullz[2]-fullz[1])))
-        ax2 = fig[1, 2] = GLMakiePlottingLibrary.AbstractPlotting.MakieLayout.LScene(fig, width=500, height=500, camera = GLMakiePlottingLibrary.cam3d!, raw = false, limits=GLMakiePlottingLibrary.FRect((zoomx[1], zoomy[1], zoomz[1]), (zoomx[2]-zoomx[1], zoomy[2]-zoomy[1], zoomz[2]-zoomz[1])))
-        ax3 = fig[1, 3] = GLMakiePlottingLibrary.AbstractPlotting.MakieLayout.Axis(fig, width=300, height=450, title="norm(v) for last local steps")
-        g1 = result.constraintvariety.implicitequations[1]
-        if(length(result.constraintvariety.implicitequations)>1)
-            # should be space curve
-            g2 = result.constraintvariety.implicitequations[2]
-            plot_implicit_curve!(ax1,g1,g2; xlims=(fullx[1],fullx[2]), ylims=(fully[1],fully[2]), zlims=(fullz[1],fullz[2]), kwargs...)
-            plot_implicit_curve!(ax2,g1,g2; xlims=(zoomx[1],zoomx[2]), ylims=(zoomy[1],zoomy[2]), zlims=(zoomz[1],zoomz[2]), kwargs...)
-        else
-            plot_implicit_surface!(ax1,g1; xlims=(fullx[1],fullx[2]), ylims=(fully[1],fully[2]), zlims=(fullz[1],fullz[2]), kwargs...)
-            plot_implicit_surface!(ax2,g1; xlims=(zoomx[1],zoomx[2]), ylims=(zoomy[1],zoomy[2]), zlims=(zoomz[1],zoomz[2]), kwargs...)
-        end
-
-        for q in ps
-            GLMakiePlottingLibrary.scatter!(ax1, GLMakiePlottingLibrary.Point3f0(q);
-                legend=false, color=:black, markersize=15)
-            GLMakiePlottingLibrary.scatter!(ax2, GLMakiePlottingLibrary.Point3f0(q);
-                legend=false, color=:black)
-        end
-
-        vnorms = result.lastlocalstepsresult.allcomputedprojectedgradientvectornorms
-        GLMakiePlottingLibrary.plot!(ax3,vnorms; legend=false)
-        return fig
-		=#
+    else
+        throw(error("The only currently supported dimension is 2."))
     end
 end
 
