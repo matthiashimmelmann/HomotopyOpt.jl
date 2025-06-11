@@ -2,10 +2,10 @@ module SemialgebraicHomotopy
 
 import HomotopyContinuation: @var, evaluate, differentiate, start_parameters!, target_parameters!, track!, solve, real_solutions, solutions, solution, rand_subspace, randn, System, ParameterHomotopy, Expression, Tracker, Variable, track, newton
 import LinearAlgebra: norm, transpose, qr, rank, normalize, pinv, eigvals, abs, eigvecs, svd, nullspace, zeros
-import Plots: plot, scatter!, Animation, frame, cgrad, heatmap, gif
+import Plots: plot, scatter!, Animation, frame, cgrad, heatmap, gif, RGBA
 import ForwardDiff: hessian, gradient, jacobian
 import HomotopyContinuation
-import ImplicitPlots: implicit_plot
+import ImplicitPlots: implicit_plot, implicit_plot!
 
 export SemialgebraicSet,
        minimize,
@@ -659,6 +659,9 @@ end
 # Below are functions `watch` and `draw`
 # to visualize low-dimensional examples
 function watch(result::OptimizationResult; totalseconds=6.0, fullx = [-1.5,1.5], fully = [-1.5,1.5], fullz = [-1.5,1.5], canvas_size=(800,800), sampling_resolution=100,  kwargs...)
+    if canvas_size[1] != canvas_size[2]
+        @warn "Canvas is expected to be a square."
+    end
     ps = result.computedpoints
 	samples = result.constraintvariety.samples
 	if !isempty(samples)
@@ -679,18 +682,19 @@ function watch(result::OptimizationResult; totalseconds=6.0, fullx = [-1.5,1.5],
 			fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
 			fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
 		end
-        if length(result.constraintvariety.equalities)>0
-            g1(x::Vector) = evaluate(result.constraintvariety.equalities[1], result.constraintvariety.variables=>x)
-            initplt = implicit_plot(g1, xlims=fullx, ylims=fully, legend=false, size=canvas_size, tickfontsize=20)
-        else
-            heatmap_matrix = zeros(Int32, sampling_resolution+1,sampling_resolution+1)
-            x_array, y_array = [fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for i in 0:sampling_resolution], [fully[1]+j*(fully[2]-fully[1])/sampling_resolution for j in 0:sampling_resolution]
-            for i in 0:sampling_resolution, j in 0:sampling_resolution
-                point = [x_array[i+1], y_array[j+1]]
-                heatmap_matrix[i+1,j+1] = evaluate(result.constraintvariety.inequalities[1], result.constraintvariety.variables=>point) >= 0 ? 1 : 0
-            end
-            initplt = heatmap(x_array, y_array, heatmap_matrix', c=cgrad([:white,:grey70]), legend=false, size=canvas_size, tickfontsize=20)
+        initplt = plot([],[],xlims=fullx, ylims=fully, legend=false, size=canvas_size, tickfontsize=16*canvas_size[1]/800, grid=false)
+
+        x_array, y_array = [fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for i in 0:sampling_resolution], [fully[1]+j*(fully[2]-fully[1])/sampling_resolution for j in 0:sampling_resolution]
+        heatmap_array = [[x_array[i+1], y_array[j+1]] for i in 0:sampling_resolution for j in 0:sampling_resolution]
+        for eq in result.constraintvariety.inequalities
+            heatmap_array = filter(point->evaluate(eq, result.constraintvariety.variables=>point) >= 0, heatmap_array)
         end
+        scatter!(initplt, [ar[1] for ar in heatmap_array], [ar[2] for ar in heatmap_array], markershape=:rect, markersize=4*(100/sampling_resolution)*(canvas_size[1]/800), markerstrokewidth=0, color=RGBA{Float64}(0.75,0.75,0.75))
+
+        for eq in result.constraintvariety.equalities
+            implicit_plot!(initplt, x->evaluate(eq, result.constraintvariety.variables=>x))
+        end
+
         if result.lastpointisoptimum
 		    initplt = scatter!(initplt, [ps[end][1]], [ps[end][2]], legend=false, markersize=17.5, color=:red, markershape=:rtriangle, xlims=fullx, ylims=fully)
         end
