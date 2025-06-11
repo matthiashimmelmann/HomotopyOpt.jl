@@ -32,6 +32,8 @@ function setStartSolution(T::TrackerWithStartSolution, startSol::Vector)
 	setfield!(T, :startSolution, startSol)
 end
 
+
+
 #=
  An object that describes a constraint variety by giving its generating equations, coordinate variables, its dimension and its jacobian.
  Additionally, it contains the system describing the Euclidian Distance Problem and samples from the variety.
