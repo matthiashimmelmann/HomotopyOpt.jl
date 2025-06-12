@@ -3,6 +3,7 @@ module SemialgebraicHomotopy
 import HomotopyContinuation: @var, evaluate, differentiate, start_parameters!, target_parameters!, track!, solve, real_solutions, solutions, solution, rand_subspace, randn, System, ParameterHomotopy, Expression, Tracker, Variable, track, newton
 import LinearAlgebra: norm, transpose, qr, rank, normalize, pinv, eigvals, abs, eigvecs, svd, nullspace, zeros
 import Plots: plot, scatter!, Animation, frame, cgrad, heatmap, gif, RGBA
+using Plots.PlotMeasures
 import ForwardDiff: hessian, gradient, jacobian
 import HomotopyContinuation
 import ImplicitPlots: implicit_plot, implicit_plot!
@@ -539,7 +540,7 @@ WARNING This is redundant and can be merged with findminima
 function takelocalsteps(p::Vector{Float64}, ε0::Float64, tolerance, G::SemialgebraicSet,
                 objectiveFunction::Function,
                 evaluateobjectivefunctiongradient::Function;
-                maxsteps=1, maxstepsize=5, decreasefactor=2.5, initialtime = Base.time(), maxseconds = 100, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
+                maxsteps=1, maxstepsize=5, decreasefactor=2, initialtime = Base.time(), maxseconds = 100, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
     timesturned, F = 0, System([G.variables[1]])
     _, Tp, vp1, vp2 = get_NTv(p, G, evaluateobjectivefunctiongradient)
     Ts = [Tp] # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
@@ -596,7 +597,7 @@ end
 function minimize(p0::Vector{Float64}, tolerance::Float64,
                 G::SemialgebraicSet,
                 objectiveFunction::Function;
-                maxseconds=100, maxlocalsteps=1, initialstepsize=0.1, whichstep="EDStep", initialtime = Base.time(), homotopyMethod = "HomotopyContinuation")
+                maxseconds=100, maxlocalsteps=1, initialstepsize=0.2, whichstep="EDStep", initialtime = Base.time(), homotopyMethod = "HomotopyContinuation")
 	#TODO Rework minimality: We are not necessarily at a minimality, if resolveSingularity does not find any better point. => first setequations, then ismin
     p = copy(p0) # initialize before updating `p` below
     ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
@@ -613,22 +614,22 @@ function minimize(p0::Vector{Float64}, tolerance::Float64,
 			if norm(ps[end-1]-ps[end]) < tolerance^3
 				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, ps[end]; criticaltol=tolerance)
 				if optimality
-					return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+					return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,objectiveFunction,optimality)
 				end
 				println("Resolving")
 				p, foundsomething = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient; homotopyMethod=homotopyMethod)
 				if foundsomething
 					optRes = minimize(p, tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime, homotopyMethod=homotopyMethod)
-					return OptimizationResult(true,vcat(ps, optRes.computedpoints),lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisoptimum)
+					return OptimizationResult(true,vcat(ps, optRes.computedpoints),lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,objectiveFunction,optRes.lastpointisoptimum)
 				end
-				return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+				return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,objectiveFunction,optimality)
 			else
 				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, ps[end]; criticaltol=tolerance)
 				if !optimality
 					optRes = minimize(ps[end], tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
-					return OptimizationResult(true,vcat(ps, optRes.computedpoints), lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisoptimum)
+					return OptimizationResult(true,vcat(ps, optRes.computedpoints), lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,objectiveFunction,optRes.lastpointisoptimum)
 				end
-				return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+				return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,objectiveFunction,optimality)
 			end
         else
             p = lastLSR.newsuggestedstartpoint
@@ -658,9 +659,7 @@ function watch(result::OptimizationResult; totalseconds=6.0, framesize=nothing, 
 		mediannorm = (sort([norm(p) for p in samples]))[Int(floor(samples/2))]
 		samples = filter(x -> norm(x) < 2*mediannorm+0.5, samples)
 	end
-    initplt = plot() # initialize
-    M = length(ps)
-    framespersecond = M / totalseconds
+    framespersecond = length(ps) / totalseconds
     if framespersecond > 45
         framespersecond = 45
     end
@@ -678,7 +677,7 @@ function watch(result::OptimizationResult; totalseconds=6.0, framesize=nothing, 
             fullx = framesize[1]
             fully = framesize[2]
         end
-        initplt = plot([],[],xlims=fullx, ylims=fully, legend=false, size=canvas_size, tickfontsize=16*canvas_size[1]/800, grid=false)
+        initplt = plot([],[],xlims=fullx, ylims=fully, left_margin = 16mm, legend=false, size=canvas_size, tickfontsize=16*canvas_size[1]/800, grid=false)
 
         x_array, y_array = [fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for i in 0:sampling_resolution], [fully[1]+j*(fully[2]-fully[1])/sampling_resolution for j in 0:sampling_resolution]
         heatmap_array = [[x_array[i+1], y_array[j+1]] for i in 0:sampling_resolution for j in 0:sampling_resolution]
@@ -694,6 +693,7 @@ function watch(result::OptimizationResult; totalseconds=6.0, framesize=nothing, 
         if result.lastpointisoptimum
 		    initplt = scatter!(initplt, [ps[end][1]], [ps[end][2]], legend=false, markersize=17.5, color=:red, markershape=:rtriangle, xlims=fullx, ylims=fully)
         end
+
         frame(anim)
         for p in ps[1:end]
             # BELOW: only plot next point, delete older points during animation
@@ -708,31 +708,63 @@ function watch(result::OptimizationResult; totalseconds=6.0, framesize=nothing, 
     end
 end
 
-function draw(result::OptimizationResult; kwargs...)
+function draw(result::OptimizationResult; framesize=nothing, canvas_size=(800,800), sampling_resolution=100, kwargs...)
+    if canvas_size[1] != canvas_size[2]
+        @warn "Canvas is expected to be a square."
+    end
     dim = length(result.computedpoints[1]) # dimension of the ambient space
 	ps = result.computedpoints
 	samples = result.constraintvariety.samples
-	mediannorm = Statistics.median([LinearAlgebra.norm(p) for p in samples])
-	# TODO centroid approach rather than mediannorm and then difference from centroid.
-	samples = filter(x -> LinearAlgebra.norm(x) < 2*mediannorm+0.5, samples)
+	if !isempty(samples)
+		mediannorm = (sort([norm(p) for p in samples]))[Int(floor(samples/2))]
+		samples = filter(x -> norm(x) < 2*mediannorm+0.5, samples)
+	end
+    startingtime = Base.time()
     if dim == 2
-		fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
-        fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
-        g1 = x->evaluate(result.constraintvariety.equalities[1], result.constraintvariety.variables=>x) # should only be a curve in ambient R^2
-        plt1 = implicit_plot(g1, xlims=fullx, ylims=fully, legend=false)
-        localqs = result.lastlocalstepsresult.allcomputedpoints
-        zoomx = [minimum([q[1] for q in localqs]) - 0.05, maximum([q[1] for q in localqs]) + 0.05]
-        zoomy = [minimum([q[2] for q in localqs]) - 0.05, maximum([q[2] for q in localqs]) + 0.05]
-        plt2 = implicit_plot(g1, xlims=zoomx, ylims=zoomy, legend=false)
+        if framesize==nothing
+            fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.025, maximum([q[1] for q in vcat(samples, ps)]) + 0.025]
+            fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.025, maximum([q[2] for q in vcat(samples, ps)]) + 0.025]
+        else
+            if !(framesize isa Union{Vector, Tuple}) || length(framesize)!=2 || any(fr->fr[2]-fr[1]<1e-4, framesize)
+                throw(error("Framesize needs to be a tuple of (nonempty) intervals, but is $(typeof(framesize)). Use for example `framesize=((-1.5,1.5),(-1.5,1.5))`."))
+            end
+            fullx = framesize[1]
+            fully = framesize[2]
+        end
+        initplt = plot([],[],xlims=fullx, ylims=fully, left_margin = 16mm, legend=false, size=canvas_size, title="Optimization Points", titlefontsize=20*canvas_size[1]/800, tickfontsize=18*canvas_size[1]/800)
+        x_array, y_array = [fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for i in 0:sampling_resolution], [fully[1]+j*(fully[2]-fully[1])/sampling_resolution for j in 0:sampling_resolution]
+        heatmap_array = [[x_array[i+1], y_array[j+1]] for i in 0:sampling_resolution for j in 0:sampling_resolution]
+        for eq in result.constraintvariety.inequalities
+            heatmap_array = filter(point->evaluate(eq, result.constraintvariety.variables=>point) >= 0, heatmap_array)
+        end
+        scatter!(initplt, [ar[1] for ar in heatmap_array], [ar[2] for ar in heatmap_array], markershape=:rect, markersize=4*(100/sampling_resolution)*(canvas_size[1]/800), markerstrokewidth=0, color=RGBA{Float64}(0.75,0.75,0.75))
+        for eq in result.constraintvariety.equalities
+            implicit_plot!(initplt, x->evaluate(eq, result.constraintvariety.variables=>x))
+        end
         for q in ps
-            plt1 = scatter!(plt1, [q[1]], [q[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
+            scatter!(initplt, [q[1]], [q[2]], legend=false, color=:black, xlims=fullx, ylims=fully)
+        end
+
+        localqs = ps[Int(ceil(length(ps)/2)):end]
+        zoomx = [minimum([q[1] for q in localqs]) - 0.025, maximum([q[1] for q in localqs]) + 0.025]
+        zoomy = [minimum([q[2] for q in localqs]) - 0.025, maximum([q[2] for q in localqs]) + 0.025]
+        initplt2 = plot([],[],xlims=zoomx, ylims=zoomy, left_margin = 16mm, legend=false, size=canvas_size, title="Zoomed-In Optimization Points", titlefontsize=20*canvas_size[1]/800, tickfontsize=18*canvas_size[1]/800) 
+        x_array, y_array = [zoomx[1]+i*(zoomx[2]-zoomx[1])/sampling_resolution for i in 0:sampling_resolution], [zoomy[1]+j*(zoomy[2]-zoomy[1])/sampling_resolution for j in 0:sampling_resolution]
+        heatmap_array = [[x_array[i+1], y_array[j+1]] for i in 0:sampling_resolution for j in 0:sampling_resolution]
+        for eq in result.constraintvariety.inequalities
+            heatmap_array = filter(point->evaluate(eq, result.constraintvariety.variables=>point) >= 0, heatmap_array)
+        end
+        scatter!(initplt2, [ar[1] for ar in heatmap_array], [ar[2] for ar in heatmap_array], markershape=:rect, markersize=4*(100/sampling_resolution)*(canvas_size[1]/800), markerstrokewidth=0, color=RGBA{Float64}(0.75,0.75,0.75))
+        for eq in result.constraintvariety.equalities
+            implicit_plot!(initplt2, x->evaluate(eq, result.constraintvariety.variables=>x))
         end
         for q in localqs
-            plt2 = scatter!(plt2, [q[1]], [q[2]], legend=false, color=:blue, xlims=zoomx, ylims=zoomy)
+            scatter!(initplt2, [q[1]], [q[2]], legend=false, color=:blue, xlims=zoomx, ylims=zoomy)
         end
-        vnorms = result.lastlocalstepsresult.allcomputedprojectedgradientvectornorms
-        pltvnorms = plot(vnorms, legend=false, title="norm(v) for last local steps")
-        plt = plot(plt1,plt2,pltvnorms, layout=(1,3), size=(900,300) )
+
+        energy_values = [result.objectivefunction(p) for p in ps]
+        pltvnorms = plot(1:length(energy_values), energy_values, left_margin = 16mm, size=canvas_size, legend=false, title="Objective Function Values", titlefontsize=20*canvas_size[1]/800, tickfontsize=18*canvas_size[1]/800)
+        plt = plot(initplt,initplt2,pltvnorms, layout=(3,1), size=(canvas_size[1]+100,canvas_size[2]*3+100))
         return plt
     else
         throw(error("The only currently supported dimension is 2."))
