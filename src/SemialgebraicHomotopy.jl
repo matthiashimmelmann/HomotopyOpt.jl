@@ -172,82 +172,54 @@ function resolveSingularity(p, G::SemialgebraicSet, Q::Function, evaluateobjecti
     return(p, false)
 end
 
-#=
- We predict in the projected gradient direction and correct by using the Gauss-Newton method
-=#
-function gaussnewtonstep(G::SemialgebraicSet, p; tol=1e-12, initialtime=Base.time(), maxseconds=100)
-	global q = Base.copy(p)
-	global damping = 0.1
+
+function _perform_gauss_newton(jac, constraints, variables, p; tol=1e-12, initialtime=Base.time(), maxseconds=100)
+    global damping = 0.1
+    global q = Base.copy(p)
 	global qnew = q
-    equations = Base.copy(G.equalities)
-	jac = G.fulljacobian[:,1:length(G.equalities)]
-	while length(G.equalities)>0 && norm(evaluate.(G.equalities, G.variables=>q)) > tol
-		J = Matrix{Float64}(evaluate.(jac, G.variables=>q))
+    while length(constraints)>0 && norm(evaluate.(constraints, variables=>q)) > tol
+		J = Matrix{Float64}(evaluate.(jac, variables=>q))
         # Randomize the linear system of equations
         stress_dimension = size(nullspace(J; atol=1e-8))[2]
         if stress_dimension > 0
-            rand_mat = randn(Float64, length(G.equalities) - stress_dimension, length(G.equalities))
-            equations = rand_mat*G.equalities
+            rand_mat = randn(Float64, length(constraints) - stress_dimension, length(constraints))
+            equations = rand_mat*equations
             J = rand_mat*J
         else
-            equations = G.equalities
+            equations = constraints
         end
 
         # damped Newton's method
-        qnew = q - damping * (J' \ evaluate(equations, G.variables=>q))
-        if norm(evaluate(G.equalities, G.variables=>qnew)) < norm(evaluate(G.equalities, G.variables=>q))
+        qnew = q - damping * (J' \ evaluate(equations, variables=>q))
+        if norm(evaluate(constraints, variables=>qnew)) < norm(evaluate(constraints, variables=>q))
             global damping = damping*1.2
         else
             global damping = damping/2
         end
-        if damping < 1e-14 || Base.time()-initialtime > length(q)/10
+        if damping < 1e-14 || Base.time()-initialtime > minimum([length(q)/10,maxseconds])
             throw("Newton's method did not converge in time.")
         end
         q = qnew
         if damping > 1
             global damping = 1
         end
-		if time()-initialtime > maxseconds
-			return p, false
-		end
 	end
+	return q, true
+end
+
+#=
+ We predict in the projected gradient direction and correct by using the Gauss-Newton method
+=#
+function gaussnewtonstep(G::SemialgebraicSet, p; tol=1e-12, initialtime=Base.time(), maxseconds=100)
+    equations = Base.copy(G.equalities)
+	jac = G.fulljacobian[:,1:length(G.equalities)]
+    q, _ = _perform_gauss_newton(jac, equations, G.variables, p; tol=tol, initialtime=initialtime, maxseconds=maxseconds)
 
     # A posteriori correction to the inequality constraints
     violated_indices = [i for (i,eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=tol]
     new_equations = vcat(G.equalities, G.inequalities[violated_indices])
     jac = G.fulljacobian[:,vcat(1:length(G.equalities), violated_indices)]
-    global damping = 0.1
-    while length(new_equations)>0 && norm(evaluate.(new_equations, G.variables=>q)) > tol
-		J = Matrix{Float64}(evaluate.(jac, G.variables=>q))
-        stress_dimension = size(nullspace(J; atol=1e-8))[2]
-        # Randomize the linear system of equations
-        if stress_dimension > 0
-            rand_mat = randn(Float64, length(new_equations) - stress_dimension, length(new_equations))
-            equations = rand_mat*new_equations
-            J = rand_mat*J
-        else
-            equations = new_equations
-        end
-
-        # damped Newton's method
-        qnew = q - damping * (J' \ evaluate(equations, G.variables=>q))
-        if norm(evaluate(new_equations, G.variables=>qnew)) < norm(evaluate(new_equations, G.variables=>q))
-            global damping = damping*1.2
-        else
-            global damping = damping/2
-        end
-        if damping < 1e-14 || Base.time()-initialtime > length(q)/4
-            throw("Newton's method did not converge in time.")
-        end
-        q = qnew
-        if damping > 1
-            global damping = 1
-        end
-		if time()-initialtime > maxseconds
-			return p, false
-		end
-	end
-	return q, true
+    return _perform_gauss_newton(jac, new_equations, G.variables, q; tol=tol, initialtime=initialtime, maxseconds=maxseconds)
 end
 
 function EDStep_HC(G::SemialgebraicSet, p, stepsize, v; homotopyMethod, amount_Euler_steps=4)
@@ -546,7 +518,6 @@ end
 An object that contains the iteration's information like norms of the projected gradient, step sizes and search directions
 =#
 struct LocalStepsResult
-    initialpoint
     initialstepsize
     allcomputedpoints
     allcomputedprojectedgradientvectors
@@ -555,10 +526,9 @@ struct LocalStepsResult
     newsuggestedstepsize
     converged
     timesturned
-    valleysfound
 
-    function LocalStepsResult(p,ε0,qs,vs,ns,newp,newε0,converged,timesturned,valleysfound)
-        new(p,ε0,qs,vs,ns,newp,newε0,converged,timesturned,valleysfound)
+    function LocalStepsResult(ε0,qs,vs,ns,newp,newε0,converged,timesturned)
+        new(ε0,qs,vs,ns,newp,newε0,converged,timesturned)
     end
 end
 
@@ -569,8 +539,8 @@ WARNING This is redundant and can be merged with findminima
 function takelocalsteps(p::Vector{Float64}, ε0::Float64, tolerance, G::SemialgebraicSet,
                 objectiveFunction::Function,
                 evaluateobjectivefunctiongradient::Function;
-                maxsteps=1, maxstepsize=5, decreasefactor=3, initialtime = Base.time(), maxseconds = 100, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
-    timesturned, valleysfound, F = 0, 0, System([G.variables[1]])
+                maxsteps=1, maxstepsize=5, decreasefactor=2.5, initialtime = Base.time(), maxseconds = 100, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
+    timesturned, F = 0, System([G.variables[1]])
     _, Tp, vp1, vp2 = get_NTv(p, G, evaluateobjectivefunctiongradient)
     Ts = [Tp] # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
     qs, vs, ns = [p], [vp2], [norm(vp2)] # qs=new points on G, vs=projected gradients, ns=norms of projected gradients
@@ -587,16 +557,17 @@ function takelocalsteps(p::Vector{Float64}, ε0::Float64, tolerance, G::Semialge
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
         length(vs)>3 ? deleteat!(vs, 1) : nothing
         if ns[end] < tolerance
-            return LocalStepsResult(p,ε0,qs[2:end],vs,ns,q,stepsize,true,timesturned,valleysfound)
+            return LocalStepsResult(ε0,qs[2:end],vs,ns,q,stepsize,true,timesturned)
         end
         ϕvj = paralleltransport(vs[end], Ts[end], Ts[end-1])
         if vs[end-1]'*ϕvj < 0
+            timesturned += 1
             stepsize = stepsize/decreasefactor
         end
         # The next (initial) stepsize is determined by the previous step and how much the energy function changed - in accordance with RieOpt.
 		stepsize = Base.minimum([ Base.maximum([ success ? abs(stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])[2]/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])[2]))  : 0.1*stepsize, 1e-4]), maxstepsize])
     end
-    return LocalStepsResult(p,ε0,qs[2:end],vs,ns,qs[end],stepsize,false,timesturned,valleysfound)
+    return LocalStepsResult(ε0,qs[2:end],vs,ns,qs[end],stepsize,false,timesturned)
 end
 
 #=
@@ -605,7 +576,6 @@ end
 struct OptimizationResult
     is_minimization
     computedpoints
-    initialpoint
     initialstepsize
     tolerance
     converged
@@ -614,8 +584,8 @@ struct OptimizationResult
     objectivefunction
 	lastpointisoptimum
 
-    function OptimizationResult(is_minimization,ps,p0,ε0,tolerance,converged,lastLSResult,G,Q,lastpointisoptimum)
-        new(is_minimization,ps,p0,ε0,tolerance,converged,lastLSResult,G,Q,lastpointisoptimum)
+    function OptimizationResult(is_minimization,ps,ε0,tolerance,converged,lastLSResult,G,Q,lastpointisoptimum)
+        new(is_minimization,ps,ε0,tolerance,converged,lastLSResult,G,Q,lastpointisoptimum)
     end
 end
 
@@ -626,15 +596,13 @@ end
 function minimize(p0::Vector{Float64}, tolerance::Float64,
                 G::SemialgebraicSet,
                 objectiveFunction::Function;
-                maxseconds=100, maxlocalsteps=1, initialstepsize=0.05, whichstep="EDStep", initialtime = Base.time(), homotopyMethod = "HomotopyContinuation")
+                maxseconds=100, maxlocalsteps=1, initialstepsize=0.1, whichstep="EDStep", initialtime = Base.time(), homotopyMethod = "HomotopyContinuation")
 	#TODO Rework minimality: We are not necessarily at a minimality, if resolveSingularity does not find any better point. => first setequations, then ismin
     p = copy(p0) # initialize before updating `p` below
     ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
 	evaluateobjectivefunctiongradient = x -> (gradient(objectiveFunction, x), gradient(objectiveFunction, x))
-    _, Tq, v1, v2 = get_NTv(p, G, evaluateobjectivefunctiongradient) # Get the projected gradient at the first point
 	# initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
-	global ε0 = 1.5*initialstepsize
-    lastLSR = LocalStepsResult(p,ε0,[],[],[],p,ε0,false,0,0)
+	global ε0 = initialstepsize
     while (Base.time() - initialtime) <= maxseconds
         # update LSR, only store the *last local run*
         lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, initialtime=initialtime, maxseconds=maxseconds, whichstep=whichstep, homotopyMethod=homotopyMethod)
@@ -645,22 +613,22 @@ function minimize(p0::Vector{Float64}, tolerance::Float64,
 			if norm(ps[end-1]-ps[end]) < tolerance^3
 				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, ps[end]; criticaltol=tolerance)
 				if optimality
-					return OptimizationResult(true,ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+					return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 				end
 				println("Resolving")
 				p, foundsomething = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient; homotopyMethod=homotopyMethod)
 				if foundsomething
 					optRes = minimize(p, tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime, homotopyMethod=homotopyMethod)
-					return OptimizationResult(true,vcat(ps, optRes.computedpoints),p0,lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisoptimum)
+					return OptimizationResult(true,vcat(ps, optRes.computedpoints),lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisoptimum)
 				end
-				return OptimizationResult(true,ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+				return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 			else
 				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, ps[end]; criticaltol=tolerance)
 				if !optimality
 					optRes = minimize(ps[end], tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
-					return OptimizationResult(true,vcat(ps, optRes.computedpoints), p0, lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisoptimum)
+					return OptimizationResult(true,vcat(ps, optRes.computedpoints), lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,evaluateobjectivefunctiongradient,optRes.lastpointisoptimum)
 				end
-				return OptimizationResult(true,ps,p0,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
+				return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,evaluateobjectivefunctiongradient,optimality)
 			end
         else
             p = lastLSR.newsuggestedstartpoint
