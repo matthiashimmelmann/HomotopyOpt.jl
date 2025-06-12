@@ -569,7 +569,7 @@ WARNING This is redundant and can be merged with findminima
 function takelocalsteps(p::Vector{Float64}, ε0::Float64, tolerance, G::SemialgebraicSet,
                 objectiveFunction::Function,
                 evaluateobjectivefunctiongradient::Function;
-                maxsteps=1, maxstepsize=5, decreasefactor=2, initialtime = Base.time(), maxseconds = 100, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
+                maxsteps=1, maxstepsize=5, decreasefactor=3, initialtime = Base.time(), maxseconds = 100, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
     timesturned, valleysfound, F = 0, 0, System([G.variables[1]])
     _, Tp, vp1, vp2 = get_NTv(p, G, evaluateobjectivefunctiongradient)
     Ts = [Tp] # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
@@ -588,18 +588,10 @@ function takelocalsteps(p::Vector{Float64}, ε0::Float64, tolerance, G::Semialge
         length(vs)>3 ? deleteat!(vs, 1) : nothing
         if ns[end] < tolerance
             return LocalStepsResult(p,ε0,qs[2:end],vs,ns,q,stepsize,true,timesturned,valleysfound)
-        elseif ((ns[end] - ns[end-1]) > 0.0)
-            #TODO Improve the "turning property"
-            if length(ns) > 2 && ((ns[end-1] - ns[end-2]) < 0.0)
-                # projected norms were decreasing, but started increasing!
-                # check parallel transport dot product to see if we should slow down
-                valleysfound += 1
-                ϕvj = paralleltransport(vs[end], Ts[end], Ts[end-2])
-                if ((vs[end-2]' * ϕvj) < 0.0)
-                    # we think there is a critical point we skipped past! slow down!
-                    return LocalStepsResult(p,ε0,qs[2:end],vs,ns,qs[end-2],stepsize/decreasefactor,false,timesturned+1,valleysfound)
-                end
-            end
+        end
+        ϕvj = paralleltransport(vs[end], Ts[end], Ts[end-1])
+        if vs[end-1]'*ϕvj < 0
+            stepsize = stepsize/decreasefactor
         end
         # The next (initial) stepsize is determined by the previous step and how much the energy function changed - in accordance with RieOpt.
 		stepsize = Base.minimum([ Base.maximum([ success ? abs(stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])[2]/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])[2]))  : 0.1*stepsize, 1e-4]), maxstepsize])
@@ -688,11 +680,11 @@ end
 
 # Below are functions `watch` and `draw`
 # to visualize low-dimensional examples
-function watch(result::OptimizationResult; totalseconds=6.0, fullx = [-1.5,1.5], fully = [-1.5,1.5], fullz = [-1.5,1.5], canvas_size=(800,800), sampling_resolution=100,  kwargs...)
+function watch(result::OptimizationResult; totalseconds=6.0, framesize=nothing, canvas_size=(800,800), sampling_resolution=100,  kwargs...)
     if canvas_size[1] != canvas_size[2]
         @warn "Canvas is expected to be a square."
     end
-    ps = result.computedpoints
+    ps = result.computedpoints        
 	samples = result.constraintvariety.samples
 	if !isempty(samples)
 		mediannorm = (sort([norm(p) for p in samples]))[Int(floor(samples/2))]
@@ -708,10 +700,16 @@ function watch(result::OptimizationResult; totalseconds=6.0, fullx = [-1.5,1.5],
     dim = length(ps[1])
     anim = Animation()
     if dim == 2
-		if !isempty(samples)
-			fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.05, maximum([q[1] for q in vcat(samples, ps)]) + 0.05]
-			fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.05, maximum([q[2] for q in vcat(samples, ps)]) + 0.05]
-		end
+        if framesize==nothing
+            fullx = [minimum([q[1] for q in vcat(samples, ps)]) - 0.025, maximum([q[1] for q in vcat(samples, ps)]) + 0.025]
+            fully = [minimum([q[2] for q in vcat(samples, ps)]) - 0.025, maximum([q[2] for q in vcat(samples, ps)]) + 0.025]
+        else
+            if !(framesize isa Union{Vector, Tuple}) || length(framesize)!=2 || any(fr->fr[2]-fr[1]<1e-4, framesize)
+                throw(error("Framesize needs to be a tuple of (nonempty) intervals, but is $(typeof(framesize)). Use for example `framesize=((-1.5,1.5),(-1.5,1.5))`."))
+            end
+            fullx = framesize[1]
+            fully = framesize[2]
+        end
         initplt = plot([],[],xlims=fullx, ylims=fully, legend=false, size=canvas_size, tickfontsize=16*canvas_size[1]/800, grid=false)
 
         x_array, y_array = [fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for i in 0:sampling_resolution], [fully[1]+j*(fully[2]-fully[1])/sampling_resolution for j in 0:sampling_resolution]
