@@ -401,7 +401,7 @@ end
 Use line search with the strong Wolfe condition to find the optimal step length.
 This particular method can be found in Nocedal & Wright: Numerical Optimization
 =#
-function backtracking_linesearch(Q::Function, F::System, G::SemialgebraicSet, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; whichstep="EDStep", maxstepsize=2.5, initialtime, maxseconds, homotopyMethod="HomotopyContinuation", r=5e-4, s=0.85)
+function backtracking_linesearch(Q::Function, F::System, G::SemialgebraicSet, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; whichstep="EDStep", maxstepsize=5, initialtime, maxseconds, homotopyMethod="HomotopyContinuation", r=1e-4, s=0.9)
 	Basenormal, _, _, basegradient = get_NTv(p0, G, evaluateobjectivefunctiongradient)
 	α = [0, stepsize]
 	p = Base.copy(p0)
@@ -419,7 +419,7 @@ function backtracking_linesearch(Q::Function, F::System, G::SemialgebraicSet, ev
 			return q, Tq, vq1, vq2, success, α[end]
 		end
 		if ( ( Q(q) > Q(p0) - r*α[end]*basegradient'*basegradient || (Q(q) > Q(p0) && q!=p0) ) && success)
-			helper = zoom(α[end-1], α[end], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, vq2, r, s; initialtime, maxseconds, homotopyMethod)
+			helper = zoom(α[end-1], α[end], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
 			_, Tq, vq1, vq2 = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
 			return helper[1], Tq, vq1, vq2, helper[2], helper[end]
 		end
@@ -427,7 +427,7 @@ function backtracking_linesearch(Q::Function, F::System, G::SemialgebraicSet, ev
 			return q, Tq, basegradient, vq2, success, α[end]
 		end
 		if basegradient'*vq2 <= 0 && success
-			helper = zoom(α[end], α[end-1], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, vq2, r, s; initialtime, maxseconds, homotopyMethod)
+			helper = zoom(α[end], α[end-1], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
 			_, Tq, vq1, vq2 = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
 			return helper[1], Tq, basegradient, vq2, helper[2], helper[end]
 		end
@@ -448,15 +448,15 @@ end
 #=
 Zoom in on the step lengths between αlo and αhi to find the optimal step size here. This is part of the backtracking line search
 =#
-function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, vq2, r, s; initialtime, maxseconds, homotopyMethod)
-    qlo, suclo = stepchoice(F, G, whichstep, αlo, p0, vq2; homotopyMethod)
+function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
+    qlo, suclo = stepchoice(F, G, whichstep, αlo, p0, basegradient; homotopyMethod)
 	# To not get stuck in the iteration, we use a for loop instead of a while loop
 	# TODO Add a more meaningful stopping criterion
     index = 1
-    while index <= 8
+    while index <= 6
 		global α = 0.5*(αlo+αhi)
         try
-            global q, success = stepchoice(F, G, whichstep, α, p0, vq2; homotopyMethod)
+            global q, success = stepchoice(F, G, whichstep, α, p0, basegradient; homotopyMethod)
         catch e
             @warn e
             αlo = αlo < αhi ? αlo : 0.5*(αlo+αhi)
@@ -569,7 +569,7 @@ WARNING This is redundant and can be merged with findminima
 function takelocalsteps(p::Vector{Float64}, ε0::Float64, tolerance, G::SemialgebraicSet,
                 objectiveFunction::Function,
                 evaluateobjectivefunctiongradient::Function;
-                maxsteps=1, maxstepsize=2.5, decreasefactor=2, initialtime = Base.time(), maxseconds = 100, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
+                maxsteps=1, maxstepsize=5, decreasefactor=2, initialtime = Base.time(), maxseconds = 100, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
     timesturned, valleysfound, F = 0, 0, System([G.variables[1]])
     _, Tp, vp1, vp2 = get_NTv(p, G, evaluateobjectivefunctiongradient)
     Ts = [Tp] # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
