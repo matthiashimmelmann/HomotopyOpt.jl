@@ -122,39 +122,6 @@ function addSamples!(G::SemialgebraicSet, newSamples)
 end
 
 #=
-Compute the system that we need for the onestep and twostep method
-=#
-function computesystem(p, G::SemialgebraicSet,
-                evaluateobjectivefunctiongradient::Function)
-
-    dgp = evaluate.(G.fulljacobian[:,1:length(G.equalities)], G.variables => p)
-    Up,_ = qr( transpose(dgp) )
-    Np = Up[:, 1:(length(G.variables) - G.dimensionofvariety)] # gives ONB for N_p(G) normal space
-
-    # we evaluate the gradient of the obj fcn at the point `p`
-    ∇Qp = evaluateobjectivefunctiongradient(p)[2]
-
-    w = -∇Qp # direction of decreasing energy function
-    v = w - Np * (Np' * w) # projected gradient -∇Q(p) onto the tangent space, subtract the normal components
-	g = G.equalities
-
-    if G.dimensionofvariety > 1 # Need more linear equations when tangent space has dim > 1
-        A,_ = qr( hcat(v, Np) )
-        A = A[:, (length(G.variables) - G.dimensionofvariety + 1):end] # basis of the orthogonal complement of v inside T_p(G)
-        L = A' * G.variables - A' * p # affine linear equations through p, containing v, give curve in variety along v
-		u = v / norm(v)
-        S = u' * G.variables - u' * (p + Variable(:ε)*u) # create and use the variable ε here.
-        F = System( vcat(g,L,S); variables=G.variables, parameters=[Variable(:ε)])
-        return F
-    else
-        u = normalize(v)
-        S = u' * G.variables - u' * (p + Variable(:ε)*u) # create and use the variable ε here.
-        F = System( vcat(g,S); variables=G.variables, parameters=[Variable(:ε)])
-        return F
-    end
-end
-
-#=
 If we are at a point of slow progression / singularity we blow the point up to a sphere and check the intersections (witness sets) with nearby components
 for the sample with lowest energy
 =#
@@ -253,58 +220,10 @@ function EDStep_HC(G::SemialgebraicSet, p, stepsize, v; homotopyMethod, amount_E
 end
 
 #=
- Move a line along the projected gradient direction for the length stepsize and calculate the resulting point of intersection with the variety
-=#
-function onestep(F, p, stepsize)
-    solveresult = solve(F, [p]; start_parameters=[0.0], target_parameters=[stepsize],
-                                                     show_progress=false)
-    sol = real_solutions(solveresult)
-    success = false
-    if length(sol) > 0
-        q = sol[1] # only tracked one solution path, thus there should only be one solution
-        success = true
-    else
-        q = p
-    end
-    return q, success
-end
-
-#=
- Similar to onestep. However, we take an intermediate, complex step to avoid singularities
-=#
-function twostep(F, p, stepsize)
-    # we want parameter homotopy from 0.0 to stepsize, so we take two steps
-    # first from 0.0 to a complex number parameter, then from that parameter to stepsize.
-    midparam = stepsize/2 + stepsize/2*1.0im # complex number *midway* between 0 and stepsize, but off real line
-    solveresult = solve(F, [p]; start_parameters=[0.0 + 0.0im], target_parameters=[midparam], show_progress=false)
-    midsols = solutions(solveresult)
-    success = false
-    if length(midsols) > 0
-        midsolution = midsols[1] # only tracked one solution path, thus there should only be one solution
-        solveresult = solve(F, [midsolution]; start_parameters=[midparam], target_parameters=[stepsize + 0.0im], show_progress=false)
-        realsols = real_solutions(solveresult)
-        if length(realsols) > 0
-            q = realsols[1] # only tracked one solution path, thus there should only be one solution
-            success = true
-        else
-            q = p
-        end
-    else
-        q = p
-    end
-    return q, success
-end
-
-
-#=
 Determines, which optimization algorithm to use
 =#
 function stepchoice(F, constraintset, whichstep, stepsize, p, v; homotopyMethod)
-	if(whichstep=="twostep")
-		return(twostep(F, p, stepsize))
-	elseif whichstep=="onestep"
-		return(onestep(F, p, stepsize))
-	elseif whichstep=="gaussnewtonstep"||whichstep=="Algorithm 0"
+	if whichstep=="gaussnewtonstep" || whichstep=="Algorithm 0"
 		return(gaussnewtonstep(constraintset, p+stepsize*v))
 	elseif whichstep=="gaussnewtonretraction"||whichstep=="newton"||whichstep=="Algorithm 1"
 		return(EDStep_HC(constraintset, p, stepsize, v; homotopyMethod="newton"))
@@ -479,16 +398,12 @@ function get_NTv(q, G::SemialgebraicSet,
 
 	try
 		global Q_active = svd(Matrix{Float64}(active_jacobian)).U
+        global Q_violated = svd(Matrix{Float64}(semiactive_jacobian)).U
 	catch e
         @warn e
 		global Q_active = qr(Matrix{Float64}(active_jacobian)).Q
-	end
-    try
-        global Q_violated = svd(Matrix{Float64}(semiactive_jacobian)).U
-    catch e
-        @warn e
         global Q_violated = qr(Matrix{Float64}(semiactive_jacobian)).Q
-    end
+	end
 
     if length(G.equalities)==0 && length(active_indeices)==0
         return [0. for _ in 1:length(G.variables)], nullspace(zeros(Float64,length(G.variables),length(G.variables))), -∇Qq1, -∇Qq2
@@ -523,18 +438,14 @@ function takelocalsteps(p::Vector{Float64}, ε0::Float64, tolerance, G::Semialge
                 objectiveFunction::Function,
                 evaluateobjectivefunctiongradient::Function;
                 maxsteps=1, maxstepsize=5, decreasefactor=2, initialtime = Base.time(), maxseconds = 100, whichstep="EDStep", homotopyMethod="HomotopyContinuation")
-    timesturned, F = 0, System([G.variables[1]])
     _, Tp, vp1, vp2 = get_NTv(p, G, evaluateobjectivefunctiongradient)
-    Ts = [Tp] # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
+    Ts, timesturned = [Tp], 0 # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
     qs, vs, ns = [p], [vp2], [norm(vp2)] # qs=new points on G, vs=projected gradients, ns=norms of projected gradients
     stepsize = Base.copy(ε0)
     for _ in 1:maxsteps
         if Base.time() - initialtime > maxseconds
 			break;
         end
-		if whichstep=="onestep" || whichstep=="twostep"
-        	F = computesystem(qs[end], G, evaluateobjectivefunctiongradient)
-		end
         q, Tq, vq1, vq2, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], Float64(stepsize); whichstep, maxstepsize, initialtime, maxseconds, homotopyMethod)
         push!(qs, q); push!(Ts, Tq); push!(ns, norm(vp2)); push!(vs, vq2)
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
