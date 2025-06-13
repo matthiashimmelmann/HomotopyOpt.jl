@@ -515,24 +515,6 @@ function paralleltransport(vj, Tj, Ti)
     return ϕvj
 end
 
-#=
-An object that contains the iteration's information like norms of the projected gradient, step sizes and search directions
-=#
-struct LocalStepsResult
-    initialstepsize
-    allcomputedpoints
-    allcomputedprojectedgradientvectors
-    allcomputedprojectedgradientvectornorms
-    newsuggestedstartpoint
-    newsuggestedstepsize
-    converged
-    timesturned
-
-    function LocalStepsResult(ε0,qs,vs,ns,newp,newε0,converged,timesturned)
-        new(ε0,qs,vs,ns,newp,newε0,converged,timesturned)
-    end
-end
-
 #= Take `maxsteps` steps to try and converge to an optimum. In each step, we use backtracking linesearch
 to determine the optimal step size to go along the search direction
 WARNING This is redundant and can be merged with findminima
@@ -558,7 +540,7 @@ function takelocalsteps(p::Vector{Float64}, ε0::Float64, tolerance, G::Semialge
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
         length(vs)>3 ? deleteat!(vs, 1) : nothing
         if ns[end] < tolerance
-            return LocalStepsResult(ε0,qs[2:end],vs,ns,q,stepsize,true,timesturned)
+            return qs[2:end],vs,ns,q,stepsize,true,timesturned
         end
         ϕvj = paralleltransport(vs[end], Ts[end], Ts[end-1])
         if vs[end-1]'*ϕvj < 0
@@ -568,7 +550,7 @@ function takelocalsteps(p::Vector{Float64}, ε0::Float64, tolerance, G::Semialge
         # The next (initial) stepsize is determined by the previous step and how much the energy function changed - in accordance with RieOpt.
 		stepsize = Base.minimum([ Base.maximum([ success ? abs(stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(qs[end-1])[2]/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])[2]))  : 0.1*stepsize, 1e-4]), maxstepsize])
     end
-    return LocalStepsResult(ε0,qs[2:end],vs,ns,qs[end],stepsize,false,timesturned)
+    return qs[2:end],vs,ns,qs[end],stepsize,false,timesturned
 end
 
 #=
@@ -580,13 +562,12 @@ struct OptimizationResult
     initialstepsize
     tolerance
     converged
-    lastlocalstepsresult
     constraintvariety
     objectivefunction
 	lastpointisoptimum
 
-    function OptimizationResult(is_minimization,ps,ε0,tolerance,converged,lastLSResult,G,Q,lastpointisoptimum)
-        new(is_minimization,ps,ε0,tolerance,converged,lastLSResult,G,Q,lastpointisoptimum)
+    function OptimizationResult(is_minimization,ps,ε0,tolerance,converged,G,Q,lastpointisoptimum)
+        new(is_minimization,ps,ε0,tolerance,converged,G,Q,lastpointisoptimum)
     end
 end
 
@@ -606,34 +587,33 @@ function minimize(p0::Vector{Float64}, tolerance::Float64,
 	global ε0 = initialstepsize
     while (Base.time() - initialtime) <= maxseconds
         # update LSR, only store the *last local run*
-        lastLSR = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, initialtime=initialtime, maxseconds=maxseconds, whichstep=whichstep, homotopyMethod=homotopyMethod)
-		global ε0 = lastLSR.newsuggestedstepsize # update and try again!
-		append!(ps, lastLSR.allcomputedpoints)
-        if lastLSR.converged
+        computedpoints,_,_,q,suggestedstepsize,converged,_ = takelocalsteps(p, ε0, tolerance, G, objectiveFunction, evaluateobjectivefunctiongradient; maxsteps=maxlocalsteps, initialtime=initialtime, maxseconds=maxseconds, whichstep=whichstep, homotopyMethod=homotopyMethod)
+		global ε0 = suggestedstepsize # update and try again!
+		append!(ps, computedpoints)
+        if converged
 			# TODO detect singularities
 			if norm(ps[end-1]-ps[end]) < tolerance^3
 				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, ps[end]; criticaltol=tolerance)
 				if optimality
-					return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,objectiveFunction,optimality)
+					return OptimizationResult(true,ps,initialstepsize,tolerance,true,G,objectiveFunction,optimality)
 				end
 				println("Resolving")
-				p, foundsomething = resolveSingularity(lastLSR.allcomputedpoints[end], G, objectiveFunction, evaluateobjectivefunctiongradient; homotopyMethod=homotopyMethod)
+				_q, foundsomething = resolveSingularity(q, G, objectiveFunction, evaluateobjectivefunctiongradient; homotopyMethod=homotopyMethod)
 				if foundsomething
-					optRes = minimize(p, tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime, homotopyMethod=homotopyMethod)
-					return OptimizationResult(true,vcat(ps, optRes.computedpoints),lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,objectiveFunction,optRes.lastpointisoptimum)
+					optRes = minimize(_q, tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=suggestedstepsize, whichstep=whichstep, initialtime=initialtime, homotopyMethod=homotopyMethod)
+					return OptimizationResult(true,vcat(ps, optRes.computedpoints),initialstepsize,tolerance,optRes.converged,G,objectiveFunction,optRes.lastpointisoptimum)
 				end
-				return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,objectiveFunction,optimality)
+				return OptimizationResult(true,ps,initialstepsize,tolerance,true,G,objectiveFunction,optimality)
 			else
 				optimality = isMinimum(G, objectiveFunction, evaluateobjectivefunctiongradient, ps[end]; criticaltol=tolerance)
 				if !optimality
-					optRes = minimize(ps[end], tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=initialstepsize, whichstep=whichstep, initialtime=initialtime)
-					return OptimizationResult(true,vcat(ps, optRes.computedpoints), lastLSR.newsuggestedstepsize,tolerance,optRes.lastlocalstepsresult.converged,optRes.lastlocalstepsresult,G,objectiveFunction,optRes.lastpointisoptimum)
+					optRes = minimize(q, tolerance, G, objectiveFunction; maxseconds = maxseconds, maxlocalsteps=maxlocalsteps, initialstepsize=suggestedstepsize, whichstep=whichstep, initialtime=initialtime)
+					return OptimizationResult(true,vcat(ps, optRes.computedpoints), initialstepsize,tolerance,optRes.converged,G,objectiveFunction,optRes.lastpointisoptimum)
 				end
-				return OptimizationResult(true,ps,initialstepsize,tolerance,true,lastLSR,G,objectiveFunction,optimality)
+				return OptimizationResult(true,ps,initialstepsize,tolerance,true,G,objectiveFunction,optimality)
 			end
         else
-            p = lastLSR.newsuggestedstartpoint
-            ε0 = lastLSR.newsuggestedstepsize # update and try again!
+            p = q
         end
     end
 
