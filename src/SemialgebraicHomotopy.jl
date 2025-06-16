@@ -48,6 +48,7 @@ mutable struct SemialgebraicSet
 	dimensionofvariety
     samples
 	EDTracker
+    full_EDSystem
 
 	# Given variables and HomotopyContinuation-based equations, sample points from the variety and return the corresponding struct
 	function SemialgebraicSet(variables::Vector{Variable}, equalities::Vector{Expression}, inequalities::Vector{Expression}, d::Int, numsamples::Int)
@@ -84,7 +85,12 @@ mutable struct SemialgebraicSet
 		p0 = randn(Float64, length(variables))
 		H = ParameterHomotopy(EDSystem, start_parameters = p0, target_parameters = p0)
 		EDTracker = TrackerWithStartSolution(Tracker(H),[])
-        new(variables,equalities,inequalities,fullequations,jacobian,d,Ωs,EDTracker)
+
+        @var μ[1:length(equalities)+length(inequalities)]
+        full_Lagrange = sum((variables-u).^2) + sum(λ.*equalities)
+        full_∇Lagrange = differentiate(Lagrange, vcat(variables,μ))
+		full_EDSystem = System(∇Lagrange, variables=vcat(variables,λ), parameters=u)
+        new(variables,equalities,inequalities,fullequations,jacobian,d,Ωs,EDTracker,full_EDSystem)
     end
 
     # Given implicit equations, sample points from the corresponding variety and return the struct
@@ -140,13 +146,18 @@ function resolveSingularity(p, G::SemialgebraicSet, Q::Function, evaluateobjecti
     return(p, false)
 end
 
-
-function _perform_gauss_newton(jac, constraints, variables, p; tol=1e-12, initialtime=Base.time(), maxseconds=100)
-    global damping = 0.1
+#=
+ We predict in the projected gradient direction and correct by using the Gauss-Newton method
+=#
+function gaussnewtonstep(G::SemialgebraicSet, p; tol=1e-12, initialtime=Base.time(), maxseconds=100)
+    equations = Base.copy(G.equalities)
+	jac = G.fulljacobian[:,1:length(G.equalities)]
+    global damping = 0.2
     global q = Base.copy(p)
 	global qnew = q
-    while length(constraints)>0 && norm(evaluate.(constraints, variables=>q)) > tol
-		J = Matrix{Float64}(evaluate.(jac, variables=>q))
+    while length(equations)>0 && norm(evaluate.(equations, G.variables=>q), Inf) > tol
+        # damped Newton's method
+        J = Matrix{Float64}(evaluate.(jac, G.variables=>q))
         # Randomize the linear system of equations
         stress_dimension = size(nullspace(J; atol=1e-8))[2]
         if stress_dimension > 0
@@ -156,15 +167,13 @@ function _perform_gauss_newton(jac, constraints, variables, p; tol=1e-12, initia
         else
             equations = constraints
         end
-
-        # damped Newton's method
-        qnew = q - damping * (J' \ evaluate(equations, variables=>q))
-        if norm(evaluate(constraints, variables=>qnew)) < norm(evaluate(constraints, variables=>q))
+        qnew = q - damping * (J' \ evaluate(equations, G.variables=>q))
+        if norm(evaluate(constraints, G.variables=>qnew), Inf) < norm(evaluate(constraints, G.variables=>q), Inf)
             global damping = damping*1.2
         else
             global damping = damping/2
         end
-        if damping < 1e-14 || Base.time()-initialtime > minimum([length(q)/10,maxseconds])
+        if damping < 1e-14 || Base.time()-initialtime > minimum([length(q)/3,maxseconds])
             throw("Newton's method did not converge in time.")
         end
         q = qnew
@@ -172,23 +181,44 @@ function _perform_gauss_newton(jac, constraints, variables, p; tol=1e-12, initia
             global damping = 1
         end
 	end
+
+    # A posteriori correction to the inequality constraints
+    global damping = 0.2
+    violated_indices = [i for (i,eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=-tol]
+    new_equations = vcat(G.equalities, G.inequalities[violated_indices])
+    jac = G.fulljacobian[:,vcat(1:length(G.equalities), violated_indices)]
+    while length(new_equations)>0 && norm(evaluate.(new_equations, G.variables=>q), Inf) > tol
+        # damped Newton's method
+        J = Matrix{Float64}(evaluate.(jac, G.variables=>q))
+        # Randomize the linear system of equations
+        stress_dimension = size(nullspace(J; atol=1e-8))[2]
+        if stress_dimension > 0
+            rand_mat = randn(Float64, length(new_equations) - stress_dimension, length(new_equations))
+            equations = rand_mat*equations
+            J = rand_mat*J
+        else
+            equations = new_equations
+        end
+        qnew = q - damping * (J' \ evaluate(equations, G.variables=>q))
+        if norm(evaluate(new_equations, G.variables=>qnew), Inf) < norm(evaluate(new_equations, G.variables=>q), Inf)
+            global damping = damping*1.2
+        else
+            global damping = damping/2
+        end
+        if damping < 1e-14 || Base.time()-initialtime > minimum([length(q)/3,maxseconds])
+            throw("Newton's method did not converge in time.")
+        end
+        q = qnew
+        if damping > 1
+            global damping = 1
+        end
+        violated_indices = [i for (i,eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=-tol]
+        new_equations = vcat(G.equalities, G.inequalities[violated_indices])
+        jac = G.fulljacobian[:,vcat(1:length(G.equalities), violated_indices)]
+	end
 	return q, true
 end
 
-#=
- We predict in the projected gradient direction and correct by using the Gauss-Newton method
-=#
-function gaussnewtonstep(G::SemialgebraicSet, p; tol=1e-12, initialtime=Base.time(), maxseconds=100)
-    equations = Base.copy(G.equalities)
-	jac = G.fulljacobian[:,1:length(G.equalities)]
-    q, _ = _perform_gauss_newton(jac, equations, G.variables, p; tol=tol, initialtime=initialtime, maxseconds=maxseconds)
-
-    # A posteriori correction to the inequality constraints
-    violated_indices = [i for (i,eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=tol]
-    new_equations = vcat(G.equalities, G.inequalities[violated_indices])
-    jac = G.fulljacobian[:,vcat(1:length(G.equalities), violated_indices)]
-    return _perform_gauss_newton(jac, new_equations, G.variables, q; tol=tol, initialtime=initialtime, maxseconds=maxseconds)
-end
 
 function EDStep_HC(G::SemialgebraicSet, p, stepsize, v; homotopyMethod, amount_Euler_steps=4)
     #initialtime = Base.time()
@@ -202,7 +232,7 @@ function EDStep_HC(G::SemialgebraicSet, p, stepsize, v; homotopyMethod, amount_E
 		result = solution(tracker)
         #TODO Implement HC for semialgebraic set as well.
 		if all(entry->Base.abs(entry.im)<1e-4, result)
-			return gaussnewtonstep(G, [entry.re for entry in result[1:length(p)]])
+			return gaussnewtonstep(G, [entry.re for entry in result])
 		else
 			return p, false
 		end
@@ -222,7 +252,7 @@ end
 #=
 Determines, which optimization algorithm to use
 =#
-function stepchoice(F, constraintset, whichstep, stepsize, p, v; homotopyMethod)
+function stepchoice(constraintset, whichstep, stepsize, p, v; homotopyMethod)
 	if whichstep=="gaussnewtonstep" || whichstep=="Algorithm 0"
 		return(gaussnewtonstep(constraintset, p+stepsize*v))
 	elseif whichstep=="gaussnewtonretraction"||whichstep=="newton"||whichstep=="Algorithm 1"
@@ -293,13 +323,13 @@ end
 Use line search with the strong Wolfe condition to find the optimal step length.
 This particular method can be found in Nocedal & Wright: Numerical Optimization
 =#
-function backtracking_linesearch(Q::Function, F::System, G::SemialgebraicSet, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; whichstep="EDStep", maxstepsize=5, initialtime, maxseconds, homotopyMethod="HomotopyContinuation", r=1e-4, s=0.9)
+function backtracking_linesearch(Q::Function, G::SemialgebraicSet, evaluateobjectivefunctiongradient::Function, p0::Vector, stepsize::Float64; whichstep="EDStep", maxstepsize=5, initialtime, maxseconds, homotopyMethod="HomotopyContinuation", r=1e-4, s=0.9)
 	Basenormal, _, _, basegradient = get_NTv(p0, G, evaluateobjectivefunctiongradient)
 	α = [0, stepsize]
 	p = Base.copy(p0)
     while true
         try
-		    global q, success = stepchoice(F, G, whichstep, α[end], p0, basegradient; homotopyMethod)
+		    global q, success = stepchoice(G, whichstep, α[end], p0, basegradient; homotopyMethod)
         catch e
             @warn e
             maxstepsize = (α[1]+α[2])/2
@@ -311,7 +341,7 @@ function backtracking_linesearch(Q::Function, F::System, G::SemialgebraicSet, ev
 			return q, Tq, vq1, vq2, success, α[end]
 		end
 		if ( ( Q(q) > Q(p0) - r*α[end]*basegradient'*basegradient || (Q(q) > Q(p0) && q!=p0) ) && success)
-			helper = zoom(α[end-1], α[end], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
+			helper = zoom(α[end-1], α[end], Q, evaluateobjectivefunctiongradient, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
 			_, Tq, vq1, vq2 = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
 			return helper[1], Tq, vq1, vq2, helper[2], helper[end]
 		end
@@ -319,7 +349,7 @@ function backtracking_linesearch(Q::Function, F::System, G::SemialgebraicSet, ev
 			return q, Tq, basegradient, vq2, success, α[end]
 		end
 		if basegradient'*vq2 <= 0 && success
-			helper = zoom(α[end], α[end-1], Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
+			helper = zoom(α[end], α[end-1], Q, evaluateobjectivefunctiongradient, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
 			_, Tq, vq1, vq2 = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
 			return helper[1], Tq, basegradient, vq2, helper[2], helper[end]
 		end
@@ -340,15 +370,15 @@ end
 #=
 Zoom in on the step lengths between αlo and αhi to find the optimal step size here. This is part of the backtracking line search
 =#
-function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, F, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
-    qlo, suclo = stepchoice(F, G, whichstep, αlo, p0, basegradient; homotopyMethod)
+function zoom(αlo, αhi, Q, evaluateobjectivefunctiongradient, G, whichstep, p0, basegradient, r, s; initialtime, maxseconds, homotopyMethod)
+    qlo, suclo = stepchoice(G, whichstep, αlo, p0, basegradient; homotopyMethod)
 	# To not get stuck in the iteration, we use a for loop instead of a while loop
 	# TODO Add a more meaningful stopping criterion
     index = 1
     while index <= 6
 		global α = 0.5*(αlo+αhi)
         try
-            global q, success = stepchoice(F, G, whichstep, α, p0, basegradient; homotopyMethod)
+            global q, success = stepchoice(G, whichstep, α, p0, basegradient; homotopyMethod)
         catch e
             @warn e
             αlo = αlo < αhi ? αlo : 0.5*(αlo+αhi)
@@ -411,10 +441,12 @@ function get_NTv(q, G::SemialgebraicSet,
 	Tq_active = nullspace(active_jacobian')
 	Nq_active = Q_active[:, 1:(length(G.variables) - size(Tq_active)[2])] # O.N.B. for the normal space at q
     vq1 = w1 - Nq_active * (Nq_active' * w1) # projected gradient -∇Q(p) onto the tangent space, subtract the normal components
+    @assert all(t->isapprox(t,0,atol=1e-8), Nq_active'*vq1)
 
     Tq_violated = nullspace(semiactive_jacobian')
     Nq_violated = Q_violated[:, 1:(length(G.variables) - size(Tq_violated)[2])] # O.N.B. for the normal (half-)space at q
 	vq2 = w2 - Nq_violated * (Nq_violated' * w2) # projected gradient -∇Q(p) onto the tangent cone, subtract the normal components
+    @assert all(t->isapprox(t,0,atol=1e-8), Nq_violated'*vq2)
 	return Nq_active, Tq_active, vq1, vq2
 end
 
@@ -446,8 +478,8 @@ function takelocalsteps(p::Vector{Float64}, ε0::Float64, tolerance, G::Semialge
         if Base.time() - initialtime > maxseconds
 			break;
         end
-        q, Tq, vq1, vq2, success, stepsize = backtracking_linesearch(objectiveFunction, F, G, evaluateobjectivefunctiongradient, qs[end], Float64(stepsize); whichstep, maxstepsize, initialtime, maxseconds, homotopyMethod)
-        push!(qs, q); push!(Ts, Tq); push!(ns, norm(vp2)); push!(vs, vq2)
+        q, Tq, vq1, vq2, success, stepsize = backtracking_linesearch(objectiveFunction, G, evaluateobjectivefunctiongradient, qs[end], Float64(stepsize); whichstep, maxstepsize, initialtime, maxseconds, homotopyMethod)
+        push!(qs, q); push!(Ts, Tq); push!(ns, norm(vp2, Inf)); push!(vs, vq2)
 		length(Ts)>3 ? deleteat!(Ts, 1) : nothing
         length(vs)>3 ? deleteat!(vs, 1) : nothing
         if ns[end] < tolerance
