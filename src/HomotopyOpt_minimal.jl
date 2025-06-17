@@ -269,7 +269,7 @@ function EDStep(
     elseif homotopyMethod=="Algorithm 0"
         q = p+stepsize*v
         currentSolution =
-            vcat(q, ConstraintVariety.EDTracker.startSolution[(length(q)+1):end])
+            vcat(q, ConstraintVariety.EDTracker.startSolution[(length(q) + 1):end])
         variables =
             ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
         equations = evaluate(
@@ -296,7 +296,7 @@ function EDStep(
     elseif homotopyMethod=="Algorithm 0.1"
         q = p+stepsize*v
         currentSolution =
-            vcat(p, ConstraintVariety.EDTracker.startSolution[(length(p)+1):end])
+            vcat(p, ConstraintVariety.EDTracker.startSolution[(length(p) + 1):end])
         variables =
             ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
         equations = evaluate(
@@ -326,7 +326,7 @@ function EDStep(
         #println(norm(prev_sol-currentSolution), " ", norm(prediction1-currentSolution), " ", stepsize)
         return currentSolution[1:length(q)]
     elseif homotopyMethod=="Algorithm 1"
-        curL = ConstraintVariety.EDTracker.startSolution[(length(p)+1):end]
+        curL = ConstraintVariety.EDTracker.startSolution[(length(p) + 1):end]
         q = p+disc*stepsize*v
         currentSolution = vcat(p, curL)
         variables =
@@ -353,11 +353,11 @@ function EDStep(
                 currentSolution =
                     currentSolution .- J \ evaluate.(equations, variables=>currentSolution)
             end
-            curL = currentSolution[(length(p)+1):end]
+            curL = currentSolution[(length(p) + 1):end]
         end
         return currentSolution[1:length(q)]
     elseif homotopyMethod=="Algorithm 2"
-        curL = ConstraintVariety.EDTracker.startSolution[(length(p)+1):end]
+        curL = ConstraintVariety.EDTracker.startSolution[(length(p) + 1):end]
         q = p+disc*stepsize*v
         currentSolution = vcat(p, curL)
         variables =
@@ -394,7 +394,7 @@ function EDStep(
                 currentSolution =
                     currentSolution .- J \ evaluate.(equations, variables=>currentSolution)
             end
-            curL = currentSolution[(length(p)+1):end]
+            curL = currentSolution[(length(p) + 1):end]
         end
         #println(norm(prev_sol-currentSolution), " ", norm(prediction-currentSolution))
         return currentSolution[1:length(q)]
@@ -496,7 +496,9 @@ function backtracking_linesearch(
     A = evaluate.(
         differentiate(
             G.EDTracker.tracker.homotopy.F.interpreted.system.expressions,
-            G.EDTracker.tracker.homotopy.F.interpreted.system.variables[(length(p)+1):end],
+            G.EDTracker.tracker.homotopy.F.interpreted.system.variables[(length(
+                p,
+            ) + 1):end],
         ),
         G.variables => p,
     )
@@ -510,9 +512,11 @@ function backtracking_linesearch(
                 p,
                 [
                     0 for _ =
-                    (length(p)+1):length(
-                        G.EDTracker.tracker.homotopy.F.interpreted.system.variables,
-                    )
+                        (length(
+                            p,
+                        ) + 1):length(
+                            G.EDTracker.tracker.homotopy.F.interpreted.system.variables,
+                        )
                 ],
                 q0,
             ),
@@ -534,7 +538,7 @@ function backtracking_linesearch(
         _, Tq, vq1, vq2 = get_NTv(q, G, evaluateobjectivefunctiongradient)
         if ((Q(q) > Q(p0) - r*α[end]*basegradient'*basegradient))
             helper = zoom(
-                α[end-1],
+                α[end - 1],
                 α[end],
                 Q,
                 evaluateobjectivefunctiongradient,
@@ -556,7 +560,7 @@ function backtracking_linesearch(
         if basegradient'*vq1 <= 0
             helper = zoom(
                 α[end],
-                α[end-1],
+                α[end - 1],
                 Q,
                 evaluateobjectivefunctiongradient,
                 G,
@@ -575,7 +579,7 @@ function backtracking_linesearch(
         p = q
         deleteat!(α, 1)
         if α[end] >= maxstepsize
-            return q, Tq, vq1, vq2, α[end-1]
+            return q, Tq, vq1, vq2, α[end - 1]
         end
     end
 end
@@ -638,7 +642,7 @@ function get_NTv(q, G::ConstraintVariety, evaluateobjectivefunctiongradient::Fun
     dgq = evaluate.(G.jacobian, G.variables => q)
     Qq = svd(Matrix{Float64}(dgq)).U
     #index = count(p->p>1e-8, S)
-    Nq = Qq[:, 1:(G.ambientdimension-G.dimensionofvariety)] # O.N.B. for the normal space at q
+    Nq = Qq[:, 1:(G.ambientdimension - G.dimensionofvariety)] # O.N.B. for the normal space at q
     Tq = nullspace(dgq')#(Qq.V)[:, (G.ambientdimension - G.dimensionofvariety + 1):end] # O.N.B. for tangent space at q
     # we evaluate the gradient of the obj fcn at the point `q`
     ∇Qq1, ∇Qq2 = evaluateobjectivefunctiongradient(q)
@@ -712,8 +716,8 @@ function takelocalsteps(
         global stepsize = Base.minimum([
             Base.maximum([
                 abs(
-                    stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(
-                        qs[end-1],
+                    stepsize*vs[end - 1]'*evaluateobjectivefunctiongradient(
+                        qs[end - 1],
                     )[2]/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])[2]),
                 ),
                 1e-2,

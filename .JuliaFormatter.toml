@@ -1,8 +1,8 @@
 indent = 4
 margin = 92
 always_for_in = false
-whitespace_typedefs = false
-whitespace_ops_in_indices = false
+whitespace_typedefs = true
+whitespace_ops_in_indices = true
 remove_extra_newlines = false
 import_to_using = false
 pipe_to_function_call = true

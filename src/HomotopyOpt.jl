@@ -183,7 +183,7 @@ function computesystem(p, G::ConstraintVariety, evaluateobjectivefunctiongradien
 
     dgp = evaluate.(G.jacobian, G.variables => p)
     Up, _ = qr(transpose(dgp))
-    Np = Up[:, 1:(G.ambientdimension-G.dimensionofvariety)] # gives ONB for N_p(G) normal space
+    Np = Up[:, 1:(G.ambientdimension - G.dimensionofvariety)] # gives ONB for N_p(G) normal space
 
     # we evaluate the gradient of the obj fcn at the point `p`
     ∇Qp = evaluateobjectivefunctiongradient(p)[2]
@@ -194,7 +194,7 @@ function computesystem(p, G::ConstraintVariety, evaluateobjectivefunctiongradien
 
     if G.dimensionofvariety > 1 # Need more linear equations when tangent space has dim > 1
         A, _ = qr(hcat(v, Np))
-        A = A[:, (G.ambientdimension-G.dimensionofvariety+1):end] # basis of the orthogonal complement of v inside T_p(G)
+        A = A[:, (G.ambientdimension - G.dimensionofvariety + 1):end] # basis of the orthogonal complement of v inside T_p(G)
         L = A' * G.variables - A' * p # affine linear equations through p, containing v, give curve in variety along v
         u = v / norm(v)
         S = u' * G.variables - u' * (p + Variable(:ε)*u) # create and use the variable ε here.
@@ -261,7 +261,7 @@ function resolveSingularity(
     catch e
         println("dimension -1: ", e)
     end
-    for j = 1:(d-1)
+    for j = 1:(d - 1)
         try
             a = rand(Float64, length(var), j)
             L = a'*var-a'*p
@@ -447,7 +447,7 @@ function EDStep(ConstraintVariety, p, stepsize, v; homotopyMethod, tol = 1e-8)
         end
     elseif homotopyMethod=="Newton"
         currentSolution =
-            vcat(q, ConstraintVariety.EDTracker.startSolution[(length(q)+1):end])
+            vcat(q, ConstraintVariety.EDTracker.startSolution[(length(q) + 1):end])
         variables =
             ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
         equations = evaluate(
@@ -641,7 +641,7 @@ function backtracking_linesearch(
             ) && success
         )
             helper = zoom(
-                α[end-1],
+                α[end - 1],
                 α[end],
                 Q,
                 evaluateobjectivefunctiongradient,
@@ -665,7 +665,7 @@ function backtracking_linesearch(
         if basegradient'*vq2 <= 0 && success
             helper = zoom(
                 α[end],
-                α[end-1],
+                α[end - 1],
                 Q,
                 evaluateobjectivefunctiongradient,
                 F,
@@ -691,7 +691,7 @@ function backtracking_linesearch(
         end
         deleteat!(α, 1)
         if α[end] > maxstepsize
-            return q, Tq, vq1, vq2, success, α[end-1]
+            return q, Tq, vq1, vq2, success, α[end - 1]
         end
     end
 end
@@ -758,7 +758,7 @@ function get_NTv(q, G::ConstraintVariety, evaluateobjectivefunctiongradient::Fun
     end
     #index = count(p->p>1e-8, S)
     Tq = nullspace(dgq')
-    Nq = Qq[:, 1:(G.ambientdimension-size(Tq)[2])] # O.N.B. for the normal space at q
+    Nq = Qq[:, 1:(G.ambientdimension - size(Tq)[2])] # O.N.B. for the normal space at q
     #(Qq.V)[:, (G.ambientdimension - G.dimensionofvariety + 1):end] # O.N.B. for tangent space at q
     # we evaluate the gradient of the obj fcn at the point `q`
     ∇Qq1, ∇Qq2 = evaluateobjectivefunctiongradient(q)
@@ -876,13 +876,13 @@ function takelocalsteps(
                 timesturned,
                 valleysfound,
             )
-        elseif ((ns[end] - ns[end-1]) > 0.0)
-            if length(ns) > 2 && ((ns[end-1] - ns[end-2]) < 0.0)
+        elseif ((ns[end] - ns[end - 1]) > 0.0)
+            if length(ns) > 2 && ((ns[end - 1] - ns[end - 2]) < 0.0)
                 # projected norms were decreasing, but started increasing!
                 # check parallel transport dot product to see if we should slow down
                 valleysfound += 1
-                ϕvj = paralleltransport(vs[end], Ts[end], Ts[end-2])
-                if ((vs[end-2]' * ϕvj) < 0.0)
+                ϕvj = paralleltransport(vs[end], Ts[end], Ts[end - 2])
+                if ((vs[end - 2]' * ϕvj) < 0.0)
                     # we think there is a critical point we skipped past! slow down!
                     return LocalStepsResult(
                         p,
@@ -890,7 +890,7 @@ function takelocalsteps(
                         qs,
                         vs,
                         ns,
-                        qs[end-2],
+                        qs[end - 2],
                         stepsize/decreasefactor,
                         false,
                         timesturned+1,
@@ -904,8 +904,8 @@ function takelocalsteps(
             Base.maximum([
                 success ?
                 abs(
-                    stepsize*vs[end-1]'*evaluateobjectivefunctiongradient(
-                        qs[end-1],
+                    stepsize*vs[end - 1]'*evaluateobjectivefunctiongradient(
+                        qs[end - 1],
                     )[2]/(vs[end]'*evaluateobjectivefunctiongradient(qs[end])[2]),
                 ) : 0.1*stepsize,
                 1e-3,
@@ -1030,7 +1030,7 @@ function findminima(
         jR = rank(jacobian; atol = tolerance^1.5)
         if lastLSR.converged
             # if we are in a singularity do a few steps again - if we revert back to the singularity, it is optiomal
-            if jR != jacRank || norm(ps[end-1]-ps[end]) < tolerance^3
+            if jR != jacRank || norm(ps[end - 1]-ps[end]) < tolerance^3
                 #setEquationsAtp!(G, ps[end]; tol=tolerance^1.5)
                 jacobianRank =
                     rank(evaluate.(G.jacobian, G.variables=>p); atol = tolerance^2)
@@ -1160,7 +1160,7 @@ function findminima(
             end
         else
             # If we are in a point of slow progress or jacobian rank change, we search the neighborhood
-            if jR != jacRank || norm(ps[end-1]-ps[end]) < tolerance^3
+            if jR != jacRank || norm(ps[end - 1]-ps[end]) < tolerance^3
                 #setEquationsAtp!(G, ps[end]; tol=tolerance^1.5)
                 jacobianRank =
                     rank(evaluate.(G.jacobian, G.variables=>p); atol = tolerance^2)

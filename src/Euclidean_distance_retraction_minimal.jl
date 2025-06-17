@@ -605,13 +605,13 @@ function explicitEulerStep(
     trivial = false,
 )
     if trivial
-        return vcat(v*step_size, [0.0 for _ = 1:(length(q)-length(p))])
+        return vcat(v*step_size, [0.0 for _ = 1:(length(q) - length(p))])
     end
     dz = evaluate.(
         EDTracker.jacobian,
         vcat(EDTracker.variables, EDTracker.parameters) => vcat(q, p+prev_step*v),
     )
-    du = vcat(v*step_size, [0.0 for _ = 1:(length(q)-length(p))])
+    du = vcat(v*step_size, [0.0 for _ = 1:(length(q) - length(p))])
     return dz \ (du)
 end
 
@@ -629,9 +629,9 @@ function RK2step(
             0.5*v*step_size,
             [
                 0.0 for _ =
-                1:(length(
-                    EDTracker.tracker.homotopy.F.interpreted.system.variables,
-                )-length(p))
+                    1:(length(
+                        EDTracker.tracker.homotopy.F.interpreted.system.variables,
+                    ) - length(p))
             ],
         )
     else
@@ -669,7 +669,7 @@ function get_NTv(q, G::ConstraintVariety, v)
     dgq = evaluate.(G.jacobian, G.variables => q)
     Qq = svd(Matrix{Float64}(dgq)).U
     #index = count(p->p>1e-8, S)
-    Nq = Qq[:, 1:(G.ambientdimension-G.dimensionofvariety)] # O.N.B. for the normal space at q
+    Nq = Qq[:, 1:(G.ambientdimension - G.dimensionofvariety)] # O.N.B. for the normal space at q
     Tq = nullspace(dgq')#(Qq.V)[:, (G.ambientdimension - G.dimensionofvariety + 1):end] # O.N.B. for tangent space at q
     # we evaluate the gradient of the obj fcn at the point `q`
     ∇Qq1 = v

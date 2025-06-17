@@ -1,5 +1,6 @@
 module SemialgebraicHomotopy
 
+#=
 import HomotopyContinuation:
     @var,
     evaluate,
@@ -19,13 +20,12 @@ import HomotopyContinuation:
     Tracker,
     Variable,
     track,
-    newton
-import LinearAlgebra:
-    norm, transpose, qr, rank, normalize, pinv, eigvals, abs, eigvecs, svd, nullspace, zeros
+    newton=#
+import LinearAlgebra: norm, qr, rank, eigvals, eigvecs, svd, nullspace, zeros
 import Plots: plot, scatter!, Animation, frame, cgrad, heatmap, gif, RGBA
 using Plots.PlotMeasures
 import ForwardDiff: hessian, gradient, jacobian
-import HomotopyContinuation
+using HomotopyContinuation
 import ImplicitPlots: implicit_plot, implicit_plot!
 
 export SemialgebraicSet,
@@ -65,13 +65,13 @@ mutable struct SemialgebraicSet
     inequalities::Any
     fullequations::Any
     fulljacobian::Any
-    dimensionofvariety::Any
     samples::Any
     EDTracker::Any
-    full_EDSystem::Any
 
     function Base.show(io::IO, G::SemialgebraicSet)
-        print("$(typeof(G))(variables: $(G.variables), equalities: $(G.equalities), inequalities: $(G.inequalities), dimensionofvariety: $(G.dimensionofvariety)$(isempty(G.samples) ? ")" : ", samples: $(G.samples))")")
+        print(
+            "$(typeof(G))(variables: $(G.variables), equalities: $(G.equalities), inequalities: $(G.inequalities)$(isempty(G.samples) ? ")" : ", samples: $(G.samples))")",
+        )
     end
 
     # Given variables and HomotopyContinuation-based equations, sample points from the variety and return the corresponding struct
@@ -79,38 +79,80 @@ mutable struct SemialgebraicSet
         variables::Vector{Variable},
         equalities::Vector{Expression},
         inequalities::Vector{Expression},
-        d::Int,
         numsamples::Int,
     )
+        tol = 1e-8
         fullequations = vcat(equalities, inequalities)
         jacobian = hcat([differentiate(eq, variables) for eq in fullequations]...)
-        randL = nothing
-        randresult = nothing
-        Ωs = []
-        if numsamples > 0
-            randL = rand_subspace(length(variables); codim = d)
-            randResult = solve(
-                equalities;
-                target_subspace = randL,
-                variables = variables,
-                show_progress = true,
-            )
-        end
-        for _ = 1:numsamples
-            newΩs = solve(
-                equalities,
-                solutions(randResult);
-                variables = variables,
-                start_subspace = randL,
-                target_subspace = rand_subspace(length(variables); codim = d, real = true),
-                transform_result = (R, p) -> real_solutions(R),
-                flatten = true,
-                show_progress = true,
-            )
-            realsols = real_solutions(newΩs)
-            push!(Ωs, realsols...)
+        if length(equalities)==0
+            Ωs = [randn(Float64, length(variables)) for _ = 1:numsamples]
+        else
+            randL, rand_point = nothing, randn(ComplexF64, length(variables))
+            d =
+                length(variables) - rank(
+                    evaluate(jacobian[:, 1:length(equalities)], variables=>rand_point);
+                    atol = tol,
+                )
+            Ωs = []
+            if numsamples > 0
+                randL = rand_subspace(length(variables); codim = d)
+                randResult = solve(
+                    equalities;
+                    targetrandResult_subspace = randL,
+                    variables = variables,
+                    show_progress = true,
+                )
+            end
+            for _ = 1:numsamples
+                newΩs = solve(
+                    equalities,
+                    solutions();
+                    variables = variables,
+                    start_subspace = randL,
+                    target_subspace = rand_subspace(
+                        length(variables);
+                        codim = d,
+                        real = true,
+                    ),
+                    transform_result = (R, p) -> real_solutions(R),
+                    flatten = true,
+                    show_progress = true,
+                )
+                realsols = real_solutions(newΩs)
+                push!(Ωs, realsols...)
+            end
         end
         Ωs = filter(t -> norm(t)<1e4, Ωs)
+        all_samples = []
+        for q in Ωs
+            violated_indices = [
+                i for (i, eq) in enumerate(inequalities) if evaluate(eq, variables=>q)<=-tol
+            ]
+            new_equations = vcat(equalities, inequalities[violated_indices])
+            new_F = System(new_equations, variables = variables)
+            cur_p, convergence = q, false
+            while !isempty(violated_indices)
+                newton_result = newton(new_F, cur_p)
+                if newton_result.return_code != :success
+                    break
+                end
+                cur_p = real.(newton_result.x)
+                violated_indices = [
+                    i for (i, eq) in enumerate(inequalities) if
+                    evaluate(eq, variables=>cur_p)<=-tol
+                ]
+                if isempty(violated_indices)
+                    convergence = true
+                    break
+                end
+                new_equations = vcat(equalities, inequalities[violated_indices])
+                new_F = System(new_equations, variables = variables)
+            end
+
+            if convergence
+                push!(all_samples, cur_p)
+            end
+        end
 
         #TODO Only compute EDSystem once
         @var u[1:length(variables)]
@@ -121,21 +163,14 @@ mutable struct SemialgebraicSet
         p0 = randn(Float64, length(variables))
         H = ParameterHomotopy(EDSystem, start_parameters = p0, target_parameters = p0)
         EDTracker = TrackerWithStartSolution(Tracker(H), [])
-
-        @var μ[1:(length(equalities)+length(inequalities))]
-        full_Lagrange = sum((variables-u) .^ 2) + sum(λ .* equalities)
-        full_∇Lagrange = differentiate(Lagrange, vcat(variables, μ))
-        full_EDSystem = System(∇Lagrange, variables = vcat(variables, λ), parameters = u)
         new(
             variables,
             equalities,
             inequalities,
             fullequations,
             jacobian,
-            d,
-            Ωs,
+            all_samples,
             EDTracker,
-            full_EDSystem,
         )
     end
 
@@ -144,7 +179,6 @@ mutable struct SemialgebraicSet
         equalities::Function,
         inequalities::Function,
         N::Int,
-        d::Int,
         numsamples::Int,
     )
         @var variables[1:N]
@@ -156,17 +190,16 @@ mutable struct SemialgebraicSet
         if typeof(algineqnz) != Vector{Expression}
             algineqnz = [algineqnz]
         end
-        SemialgebraicSet(variables, algeqnz, algineqnz, d, numsamples)
+        SemialgebraicSet(variables, algeqnz, algineqnz, numsamples)
     end
 
     # Implicit Equations, no sampling, no variables
     function SemialgebraicSet(
         equalities::Vector{Expression},
         inequalities::Vector{Expression},
-        d::Int,
     )
         F = System(vcat(equalities, inequalities))
-        SemialgebraicSet(F.variables, equalities, inequalities, d, 0)
+        SemialgebraicSet(F.variables, equalities, inequalities, 0)
     end
 
     # HomotopyContinuation-based expressions and variables, no sanples
@@ -174,9 +207,8 @@ mutable struct SemialgebraicSet
         variables::Vector{Variable},
         equalities::Vector{Expression},
         inequalities::Vector{Expression},
-        d::Int,
     )
-        SemialgebraicSet(variables, equalities, inequalities, d::Int, 0)
+        SemialgebraicSet(variables, equalities, inequalities, 0)
     end
 
 end
@@ -197,7 +229,6 @@ function resolveSingularity(
     G::SemialgebraicSet,
     Q::Function,
     evaluateobjectivefunctiongradient;
-    homotopyMethod = homotopyMethod,
     traditional_newton = true,
 )
     if Q(q) < Q(p)
@@ -229,15 +260,14 @@ function gaussnewtonstep_lagrange(
     maxseconds = 100,
     maxsteps = 50,
 )
-    F = G.full_EDSystem
-    cur_p = vcat(p, [0 for _ = (length(p)+1):length(F.variables)])
+    cur_p = Base.copy(p)
     # A posteriori correction to the inequality constraints
     violated_indices =
         [i for (i, eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=-tol]
     new_equations = vcat(G.equalities, G.inequalities[violated_indices])
-    new_F = System(new_equations, variables = F.variables, parameters = F.parameters)
+    new_F = System(new_equations, variables = G.variables)
     while !isempty(violated_indices)
-        newton_result = newton(new_F, cur_p, reference_point; max_iters = maxsteps)
+        newton_result = newton(new_F, cur_p; max_iters = maxsteps)
         if newton_result.return_code != :success
             return cur_p, false
         end
@@ -247,7 +277,7 @@ function gaussnewtonstep_lagrange(
             evaluate(eq, G.variables=>cur_p)<=-tol
         ]
         new_equations = vcat(G.equalities, G.inequalities[violated_indices])
-        new_F = System(new_equations, variables = F.variables, parameters = F.parameters)
+        new_F = System(new_equations, variables = G.variables)
     end
     return cur_p, true
 end
@@ -524,14 +554,14 @@ function isMinimum(
         gL = Matrix{Float64}(evaluate(differentiate(∇L, λ), G.variables=>p))
         bL = -evaluate.(evaluate(∇L, G.variables=>p), λ=>[0 for _ = 1:length(λ)])
         λ0 = map(t->(t==NaN || t==Inf) ? 0 : t, gL\bL)
-        λ0 = any(t->t>0, λ0[(length(G.equalities)+1):end]) ? -λ0 : λ0
+        λ0 = any(t->t>0, λ0[(length(G.equalities) + 1):end]) ? -λ0 : λ0
         Htotal = H+λ0'*HConstraints
     else
         Htotal = H
     end
     projH = Matrix{Float64}(Tp'*Htotal*Tp)
     projEigvals = real(eigvals(projH)) #projH symmetric => all real eigenvalues
-    indices = filter(i->abs(projEigvals[i])<=tol, 1:length(projEigvals))
+    indices = filter(i->Base.abs(projEigvals[i])<=tol, 1:length(projEigvals))
     projEigvecs = real(eigvecs(projH))[:, indices]
     projEigvecs = Tp*projEigvecs
     if all(q -> q >= tol, projEigvals)
@@ -565,7 +595,6 @@ function backtracking_linesearch_momentum(
     maxstepsize = 5,
     initialtime,
     maxseconds,
-    homotopyMethod = "HomotopyContinuation",
     r = 1e-4,
     s = 0.9,
     traditional_newton = true,
@@ -620,7 +649,6 @@ function backtracking_linesearch(
     maxstepsize = 5,
     initialtime,
     maxseconds,
-    homotopyMethod = "HomotopyContinuation",
     r = 1e-4,
     s = 0.9,
     traditional_newton = true,
@@ -655,7 +683,7 @@ function backtracking_linesearch(
             ) && success
         )
             helper = zoom(
-                α[end-1],
+                α[end - 1],
                 α[end],
                 Q,
                 evaluateobjectivefunctiongradient,
@@ -667,19 +695,18 @@ function backtracking_linesearch(
                 s;
                 initialtime,
                 maxseconds,
-                homotopyMethod,
                 traditional_newton,
             )
             _, Tq, vq = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
             return helper[1], Tq, vq, helper[2], helper[end]
         end
-        if (abs(basegradient'*vq) <= s*abs(basegradient'*basegradient)) && success
+        if Base.abs(basegradient'*vq) <= s*Base.abs(basegradient'*basegradient) && success
             return q, Tq, vq, success, α[end]
         end
         if basegradient'*vq <= 0 && success
             helper = zoom(
                 α[end],
-                α[end-1],
+                α[end - 1],
                 Q,
                 evaluateobjectivefunctiongradient,
                 G,
@@ -690,7 +717,6 @@ function backtracking_linesearch(
                 s;
                 initialtime,
                 maxseconds,
-                homotopyMethod,
                 traditional_newton,
             )
             _, Tq, vq = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
@@ -705,7 +731,7 @@ function backtracking_linesearch(
         end
         deleteat!(α, 1)
         if α[end] > maxstepsize
-            return q, Tq, vq, success, α[end-1]
+            return q, Tq, vq, success, α[end - 1]
         end
     end
 end
@@ -726,7 +752,6 @@ function zoom(
     s;
     initialtime,
     maxseconds,
-    homotopyMethod,
     traditional_newton,
 )
     qlo, suclo = stepchoice(
@@ -791,8 +816,8 @@ function get_NTv(
 )
     active_indices = [
         i for (i, eq) in enumerate(G.fullequations) if
-        i>length(G.equalities) && abs(evaluate(eq, G.variables=>q)) < tol
-    ]#
+        i>length(G.equalities) && Base.abs(evaluate(eq, G.variables=>q)) < tol
+    ]
     full_jacobian = evaluate.(G.fulljacobian, G.variables => q)
     active_jacobian = full_jacobian[:, vcat(1:length(G.equalities), active_indices)]
     ∇Qq = evaluateobjectivefunctiongradient(q)
@@ -820,14 +845,14 @@ function get_NTv(
         nullspace(zeros(Float64, length(G.variables), length(G.variables)))
     else
         Tq_active = nullspace(active_jacobian')
-        Nq_active = Q_active[:, 1:(length(G.variables)-size(Tq_active)[2])] # O.N.B. for the normal space at q
+        Nq_active = Q_active[:, 1:(length(G.variables) - size(Tq_active)[2])] # O.N.B. for the normal space at q
     end
 
     if length(G.equalities)==0 && length(violated_indices)==0
         return Nq_active, Tq_active, -∇Qq
     end
     Tq_violated = nullspace(semiactive_jacobian')
-    Nq_violated = Q_violated[:, 1:(length(G.variables)-size(Tq_violated)[2])] # O.N.B. for the normal (half-)space at q
+    Nq_violated = Q_violated[:, 1:(length(G.variables) - size(Tq_violated)[2])] # O.N.B. for the normal (half-)space at q
     vq = w - Nq_violated * (Nq_violated' * w) # projected gradient -∇Q(p) onto the tangent cone, subtract the normal components
     @assert all(t->isapprox(t, 0, atol = tol), semiactive_jacobian'*vq)
     return Nq_active, Tq_active, vq
@@ -862,7 +887,6 @@ function takelocalsteps(
     initialtime = Base.time(),
     maxseconds = 100,
     whichstep = "EDStep",
-    homotopyMethod = "HomotopyContinuation",
     momentum_strategy = true,
     tangent_predictor = [],
     θ_collect = [1],
@@ -886,8 +910,7 @@ function takelocalsteps(
                 maxstepsize,
                 initialtime,
                 maxseconds,
-                homotopyMethod,
-                traditional_newton = traditional_newton,
+                traditional_newton,
             )
             ϕvj = paralleltransport(vq, Tq, T_collect[end])
             if v_collect[end]'*ϕvj < 0
@@ -903,7 +926,7 @@ function takelocalsteps(
                 1,
                 q_collect[end],
                 y-q_collect[end];
-                traditional_newton = traditional_newton,
+                traditional_newton,
             ) # Momentum Step
             if !success
                 push!(θ_collect, θ_collect[end]/decreasefactor)
@@ -919,12 +942,11 @@ function takelocalsteps(
                 maxstepsize,
                 initialtime,
                 maxseconds,
-                homotopyMethod,
-                traditional_newton = traditional_newton,
+                traditional_newton,
             )
             push!(stepsize_collect, stepsize)
             tangent_predictor = q_collect[end]+(q-q_collect[end])/Base.abs(θ_collect[end])
-            a = sqrt(θ_collect[end]^2*stepsize_collect[end]/stepsize_collect[end-1])
+            a = sqrt(θ_collect[end]^2*stepsize_collect[end]/stepsize_collect[end - 1])
             ϕvj = paralleltransport(vq, Tq, T_collect[end])
             if v_collect[end]'*ϕvj < 0
                 timesturned += 1
@@ -958,25 +980,9 @@ function takelocalsteps(
         stepsize = Base.minimum([
             Base.maximum([
                 success ?
-                stepsize*(
-                    (
-                        v_collect[end-1]'*v_collect[end-1]
-                    )*(
-                        evaluateobjectivefunctiongradient(
-                            q_collect[end-1],
-                        )'*evaluateobjectivefunctiongradient(q_collect[end-1])
-                    )
-                )^(
-                    1/4
-                )/(
-                    (
-                        v_collect[end]'*v_collect[end]
-                    )*(
-                        evaluateobjectivefunctiongradient(
-                            q_collect[end],
-                        )'*evaluateobjectivefunctiongradient(q_collect[end])
-                    )
-                )^(1/4) : 0.1*stepsize,
+                stepsize*sqrt(
+                    v_collect[end - 1]'*v_collect[end - 1],
+                )/sqrt(v_collect[end]'*v_collect[end]) : 0.1*stepsize,
                 1e-4,
             ]),
             maxstepsize,
@@ -1007,7 +1013,9 @@ struct OptimizationResult
     lastpointisoptimum::Any
 
     function Base.show(io::IO, opt::OptimizationResult)
-        print("$(typeof(opt))(is_minimization: $(opt.is_minimization), computedpoints: $(opt.computedpoints), tolerance: $(opt.tolerance), converged: $(opt.converged), lastpointisoptimum: $(opt.lastpointisoptimum))")
+        print(
+            "$(typeof(opt))(is_minimization: $(opt.is_minimization), computedpoints: $(opt.computedpoints), tolerance: $(opt.tolerance), converged: $(opt.converged), lastpointisoptimum: $(opt.lastpointisoptimum))",
+        )
     end
 
     function OptimizationResult(
@@ -1038,7 +1046,6 @@ function minimize(
     initialstepsize = 0.2,
     whichstep = "EDStep",
     initialtime = Base.time(),
-    homotopyMethod = "HomotopyContinuation",
     momentum_strategy = true,
     momentum_factor = 0.9,
     traditional_newton = true,
@@ -1071,7 +1078,6 @@ function minimize(
             initialtime = initialtime,
             maxseconds = maxseconds,
             whichstep = whichstep,
-            homotopyMethod = homotopyMethod,
             momentum_strategy = momentum_strategy,
             tangent_predictor = tangent_predictor,
             θ_collect = θ_collect,
@@ -1081,7 +1087,7 @@ function minimize(
         append!(ps, computedpoints)
         if converged
             # TODO detect singularities
-            if norm(ps[end-1]-ps[end]) < tolerance^3
+            if norm(ps[end - 1]-ps[end]) < tolerance^3
                 optimality = isMinimum(
                     G,
                     objectiveFunction,
@@ -1108,7 +1114,6 @@ function minimize(
                     G,
                     objectiveFunction,
                     evaluateobjectivefunctiongradient;
-                    homotopyMethod = homotopyMethod,
                     traditional_newton = traditional_newton,
                 )
                 if foundsomething
@@ -1122,7 +1127,6 @@ function minimize(
                         initialstepsize = suggestedstepsize,
                         whichstep = whichstep,
                         initialtime = initialtime,
-                        homotopyMethod = homotopyMethod,
                     )
                     return OptimizationResult(
                         true,
@@ -1193,9 +1197,9 @@ function minimize(
         end
     end
 
-    display(
-        "We ran out of time... Try setting `maxseconds` to a larger value than $(maxseconds)",
-    )
+    if (Base.time() - initialtime) > maxseconds
+        @warn "We ran out of time... Try setting `maxseconds` to a larger value than $(maxseconds)"
+    end
     optimality = isMinimum(
         G,
         objectiveFunction,
@@ -1275,7 +1279,7 @@ function watch(
                 maximum([q[2] for q in vcat(samples, ps)]) + 0.025,
             ]
         else
-            if !(framesize isa Union{Vector,Tuple}) ||
+            if !(framesize isa Union{Vector, Tuple}) ||
                length(framesize)!=2 ||
                any(fr->fr[2]-fr[1]<1e-4, framesize)
                 throw(
@@ -1300,12 +1304,11 @@ function watch(
         )
 
         x_array, y_array = [
-            fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for
-            i = 0:sampling_resolution
+            fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for i = 0:sampling_resolution
         ],
         [fully[1]+j*(fully[2]-fully[1])/sampling_resolution for j = 0:sampling_resolution]
         heatmap_array = [
-            [x_array[i+1], y_array[j+1]] for i = 0:sampling_resolution for
+            [x_array[i + 1], y_array[j + 1]] for i = 0:sampling_resolution for
             j = 0:sampling_resolution
         ]
         for eq in result.constraintvariety.inequalities
@@ -1395,7 +1398,7 @@ function draw(
                 maximum([q[2] for q in vcat(samples, ps)]) + 0.025,
             ]
         else
-            if !(framesize isa Union{Vector,Tuple}) ||
+            if !(framesize isa Union{Vector, Tuple}) ||
                length(framesize)!=2 ||
                any(fr->fr[2]-fr[1]<1e-4, framesize)
                 throw(
@@ -1420,12 +1423,11 @@ function draw(
             tickfontsize = 18*canvas_size[1]/800,
         )
         x_array, y_array = [
-            fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for
-            i = 0:sampling_resolution
+            fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for i = 0:sampling_resolution
         ],
         [fully[1]+j*(fully[2]-fully[1])/sampling_resolution for j = 0:sampling_resolution]
         heatmap_array = [
-            [x_array[i+1], y_array[j+1]] for i = 0:sampling_resolution for
+            [x_array[i + 1], y_array[j + 1]] for i = 0:sampling_resolution for
             j = 0:sampling_resolution
         ]
         for eq in result.constraintvariety.inequalities
@@ -1458,7 +1460,7 @@ function draw(
             )
         end
 
-        localqs = ps[Int(ceil(length(ps)/2)):end]
+        localqs = ps[Int(ceil(length(ps) / 2)):end]
         zoomx = [
             minimum([q[1] for q in localqs]) - 0.025,
             maximum([q[1] for q in localqs]) + 0.025,
@@ -1480,12 +1482,11 @@ function draw(
             tickfontsize = 18*canvas_size[1]/800,
         )
         x_array, y_array = [
-            zoomx[1]+i*(zoomx[2]-zoomx[1])/sampling_resolution for
-            i = 0:sampling_resolution
+            zoomx[1]+i*(zoomx[2]-zoomx[1])/sampling_resolution for i = 0:sampling_resolution
         ],
         [zoomy[1]+j*(zoomy[2]-zoomy[1])/sampling_resolution for j = 0:sampling_resolution]
         heatmap_array = [
-            [x_array[i+1], y_array[j+1]] for i = 0:sampling_resolution for
+            [x_array[i + 1], y_array[j + 1]] for i = 0:sampling_resolution for
             j = 0:sampling_resolution
         ]
         for eq in result.constraintvariety.inequalities
