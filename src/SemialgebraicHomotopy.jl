@@ -70,6 +70,10 @@ mutable struct SemialgebraicSet
     EDTracker::Any
     full_EDSystem::Any
 
+    function Base.show(io::IO, G::SemialgebraicSet)
+        print("$(typeof(G))(variables: $(G.variables), equalities: $(G.equalities), inequalities: $(G.inequalities), dimensionofvariety: $(G.dimensionofvariety)$(isempty(G.samples) ? ")" : ", samples: $(G.samples))")")
+    end
+
     # Given variables and HomotopyContinuation-based equations, sample points from the variety and return the corresponding struct
     function SemialgebraicSet(
         variables::Vector{Variable},
@@ -1001,6 +1005,10 @@ struct OptimizationResult
     constraintvariety::Any
     objectivefunction::Any
     lastpointisoptimum::Any
+
+    function Base.show(io::IO, opt::OptimizationResult)
+        print("$(typeof(opt))(is_minimization: $(opt.is_minimization), computedpoints: $(opt.computedpoints), tolerance: $(opt.tolerance), converged: $(opt.converged), lastpointisoptimum: $(opt.lastpointisoptimum))")
+    end
 
     function OptimizationResult(
         is_minimization,
