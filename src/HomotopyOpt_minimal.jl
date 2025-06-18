@@ -19,8 +19,7 @@ import HomotopyContinuation:
     Tracker,
     Variable,
     track
-import LinearAlgebra:
-    norm, transpose, qr, rank, normalize, pinv, eigvals, abs, eigvecs, svd, nullspace
+import LinearAlgebra: norm, transpose, qr, rank, normalize, pinv, eigvals, abs, eigvecs, svd, nullspace
 import Plots: plot, scatter!, Animation, frame
 import ForwardDiff: hessian, gradient
 import HomotopyContinuation
@@ -91,10 +90,9 @@ mutable struct ConstraintVariety
         Ωs = []
         if numsamples > 0
             randL = rand_subspace(N; codim = d)
-            randResult =
-                solve(eqnz; target_subspace = randL, variables = varz, show_progress = true)
+            randResult = solve(eqnz; target_subspace = randL, variables = varz, show_progress = true)
         end
-        for _ = 1:numsamples
+        for _ in 1:numsamples
             newΩs = solve(
                 eqnz,
                 solutions(randResult);
@@ -208,17 +206,15 @@ function isMinimum(
 )
     H = hessian(Q, p)
     HConstraints = [
-        evaluate.(
-            differentiate(differentiate(eq, G.variables), G.variables),
-            G.variables=>p,
-        ) for eq in G.fullequations
+        evaluate.(differentiate(differentiate(eq, G.variables), G.variables), G.variables=>p) for
+        eq in G.fullequations
     ]
     Qalg = Q(p)+(G.variables-p)'*gradient(Q, p)+0.5*(G.variables-p)'*H*(G.variables-p) # Taylor Approximation of x, since only the Hessian is of interest anyway
     @var λ[1:length(G.fullequations)]
     L = Qalg+λ'*G.fullequations
     ∇L = differentiate(L, vcat(G.variables, λ))
     gL = Matrix{Float64}(evaluate(differentiate(∇L, λ), G.variables=>p))
-    bL = -evaluate.(evaluate(∇L, G.variables=>p), λ=>[0 for _ = 1:length(λ)])
+    bL = -evaluate.(evaluate(∇L, G.variables=>p), λ=>[0 for _ in 1:length(λ)])
     λ0 = map(t->(t==NaN || t==Inf) ? 1 : t, gL\bL)
 
     Htotal = H+λ0'*HConstraints
@@ -254,10 +250,7 @@ function EDStep(
     if homotopyMethod=="HomotopyContinuation"
         q = p+stepsize*v
         target_parameters!(ConstraintVariety.EDTracker.tracker, q)
-        tracker = track(
-            ConstraintVariety.EDTracker.tracker,
-            ConstraintVariety.EDTracker.startSolution,
-        )
+        tracker = track(ConstraintVariety.EDTracker.tracker, ConstraintVariety.EDTracker.startSolution)
         result = solution(tracker)
         if all(point->Base.abs(point.im)<1e-4, result)
             return [point.re for point in result[1:length(p)]]
@@ -268,20 +261,16 @@ function EDStep(
         return gaussnewtonstep(ConstraintVariety, p+stepsize*v; tol = tol)
     elseif homotopyMethod=="Algorithm 0"
         q = p+stepsize*v
-        currentSolution =
-            vcat(q, ConstraintVariety.EDTracker.startSolution[(length(q) + 1):end])
-        variables =
-            ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
+        currentSolution = vcat(q, ConstraintVariety.EDTracker.startSolution[(length(q) + 1):end])
+        variables = ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
         equations = evaluate(
             ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions,
-            ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters =>
-                q,
+            ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q,
         )
         jac = Matrix{Expression}(
             evaluate.(
                 ConstraintVariety.EDTracker.jacobian,
-                ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters =>
-                    q,
+                ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q,
             ),
         )
         while (norm(evaluate.(equations, variables=>currentSolution)) > tol)
@@ -289,39 +278,32 @@ function EDStep(
                 break
             end
             J = evaluate.(jac, variables=>currentSolution)
-            currentSolution =
-                currentSolution .- J \ evaluate.(equations, variables=>currentSolution)
+            currentSolution = currentSolution .- J \ evaluate.(equations, variables=>currentSolution)
         end
         return currentSolution[1:length(q)]
     elseif homotopyMethod=="Algorithm 0.1"
         q = p+stepsize*v
-        currentSolution =
-            vcat(p, ConstraintVariety.EDTracker.startSolution[(length(p) + 1):end])
-        variables =
-            ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
+        currentSolution = vcat(p, ConstraintVariety.EDTracker.startSolution[(length(p) + 1):end])
+        variables = ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
         equations = evaluate(
             ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions,
-            ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters =>
-                q,
+            ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q,
         )
         jac = Matrix{Expression}(
             evaluate.(
                 ConstraintVariety.EDTracker.jacobian,
-                ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters =>
-                    q,
+                ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q,
             ),
         )
         #println(currentSolution, stepsize*v, EulerStep(ConstraintVariety, u_t, t, p, 1, currentSolution))
         currentSolution =
-            currentSolution .+
-            EulerStep(ConstraintVariety, currentSolution, p, stepsize*v, 0, 1)
+            currentSolution .+ EulerStep(ConstraintVariety, currentSolution, p, stepsize*v, 0, 1)
         while (norm(evaluate.(equations, variables=>currentSolution)) > tol)
             if Base.time()-initialtime > maxseconds
                 break
             end
             J = evaluate.(jac, variables=>currentSolution)
-            currentSolution =
-                currentSolution .- J \ evaluate.(equations, variables=>currentSolution)
+            currentSolution = currentSolution .- J \ evaluate.(equations, variables=>currentSolution)
         end
         #println(norm(prev_sol-currentSolution), " ", norm(prediction1-currentSolution), " ", stepsize)
         return currentSolution[1:length(q)]
@@ -329,15 +311,13 @@ function EDStep(
         curL = ConstraintVariety.EDTracker.startSolution[(length(p) + 1):end]
         q = p+disc*stepsize*v
         currentSolution = vcat(p, curL)
-        variables =
-            ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
+        variables = ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
 
-        for t = disc:disc:1
+        for t in disc:disc:1
             q = p+t*stepsize*v
             equations = evaluate(
                 ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions,
-                ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters =>
-                    q,
+                ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q,
             )
             while (norm(evaluate.(equations, variables=>currentSolution)) > tol)
                 if Base.time()-initialtime > maxseconds
@@ -350,8 +330,7 @@ function EDStep(
                         ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters,
                     ) => vcat(currentSolution, q),
                 )
-                currentSolution =
-                    currentSolution .- J \ evaluate.(equations, variables=>currentSolution)
+                currentSolution = currentSolution .- J \ evaluate.(equations, variables=>currentSolution)
             end
             curL = currentSolution[(length(p) + 1):end]
         end
@@ -360,25 +339,17 @@ function EDStep(
         curL = ConstraintVariety.EDTracker.startSolution[(length(p) + 1):end]
         q = p+disc*stepsize*v
         currentSolution = vcat(p, curL)
-        variables =
-            ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
+        variables = ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.variables
 
-        for step = disc:disc:1
+        for step in disc:disc:1
             q = p+step*stepsize*v
             prev_sol = currentSolution
             currentSolution =
-                currentSolution .+ EulerStep(
-                    ConstraintVariety,
-                    currentSolution,
-                    p,
-                    stepsize*v,
-                    step-disc,
-                    disc,
-                )
+                currentSolution .+
+                EulerStep(ConstraintVariety, currentSolution, p, stepsize*v, step-disc, disc)
             equations = evaluate(
                 ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.expressions,
-                ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters =>
-                    q,
+                ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters => q,
             )
             while (norm(evaluate.(equations, variables=>currentSolution)) > tol)
                 if Base.time()-initialtime > maxseconds
@@ -391,8 +362,7 @@ function EDStep(
                         ConstraintVariety.EDTracker.tracker.homotopy.F.interpreted.system.parameters,
                     ) => vcat(currentSolution, q),
                 )
-                currentSolution =
-                    currentSolution .- J \ evaluate.(equations, variables=>currentSolution)
+                currentSolution = currentSolution .- J \ evaluate.(equations, variables=>currentSolution)
             end
             curL = currentSolution[(length(p) + 1):end]
         end
@@ -496,9 +466,7 @@ function backtracking_linesearch(
     A = evaluate.(
         differentiate(
             G.EDTracker.tracker.homotopy.F.interpreted.system.expressions,
-            G.EDTracker.tracker.homotopy.F.interpreted.system.variables[(length(
-                p,
-            ) + 1):end],
+            G.EDTracker.tracker.homotopy.F.interpreted.system.variables[(length(p) + 1):end],
         ),
         G.variables => p,
     )
@@ -511,12 +479,8 @@ function backtracking_linesearch(
             ) => vcat(
                 p,
                 [
-                    0 for _ =
-                        (length(
-                            p,
-                        ) + 1):length(
-                            G.EDTracker.tracker.homotopy.F.interpreted.system.variables,
-                        )
+                    0 for _ in
+                        (length(p) + 1):length(G.EDTracker.tracker.homotopy.F.interpreted.system.variables)
                 ],
                 q0,
             ),
@@ -604,18 +568,11 @@ function zoom(
     #qlo = stepchoice(G, whichstep, αlo, p0, basegradient; initialtime=initialtime, maxseconds=maxseconds)
     # To not get stuck in the iteration, we use a for loop instead of a while loop
     # TODO Add a more meaningful stopping criterion
-    for _ = 1:8
+    for _ in 1:8
         global α = 0.5*(αlo+αhi)
         #println("α: ", α)
-        global q = stepchoice(
-            G,
-            whichstep,
-            α,
-            p0,
-            basegradient;
-            initialtime = initialtime,
-            maxseconds = maxseconds,
-        )
+        global q =
+            stepchoice(G, whichstep, α, p0, basegradient; initialtime = initialtime, maxseconds = maxseconds)
         _, _, vq1, _ = get_NTv(q, G, evaluateobjectivefunctiongradient)
 
         if Q(q) > Q(p0) - r*α*basegradient'*basegradient# || Q(q) >= Q(qlo)
@@ -692,7 +649,7 @@ function takelocalsteps(
     Ts = [Tp] # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
     qs, vs, ns = [p], [vp2], [norm(vp1)] # qs=new points on G, vs=projected gradients, ns=norms of projected gradients
     global stepsize = Base.copy(ε0)
-    for _ = 1:maxsteps
+    for _ in 1:maxsteps
         q, Tq, vq1, vq2, stepsize = backtracking_linesearch(
             objectiveFunction,
             G,
@@ -742,17 +699,7 @@ struct OptimizationResult
     objectivefunction::Any
     lastpointisminimum::Any
 
-    function OptimizationResult(
-        ps,
-        p0,
-        ε0,
-        tolerance,
-        converged,
-        lastLSResult,
-        G,
-        Q,
-        lastpointisminimum,
-    )
+    function OptimizationResult(ps, p0, ε0, tolerance, converged, lastLSResult, G, Q, lastpointisminimum)
         new(ps, p0, ε0, tolerance, converged, lastLSResult, G, Q, lastpointisminimum)
     end
 end
@@ -779,8 +726,7 @@ function findminima(
     p = copy(p0) # initialize before updating `p` below
     ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
     jacobianG = evaluate.(differentiate(G.fullequations, G.variables), G.variables=>p0)
-    evaluateobjectivefunctiongradient =
-        x -> (gradient(objectiveFunction, x), gradient(objectiveFunction, x))
+    evaluateobjectivefunctiongradient = x -> (gradient(objectiveFunction, x), gradient(objectiveFunction, x))
     if stepdirection == "newtonstep"
         evaluateobjectivefunctiongradient =
             x -> (

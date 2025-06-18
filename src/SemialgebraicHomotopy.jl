@@ -1,26 +1,5 @@
 module SemialgebraicHomotopy
 
-#=
-import HomotopyContinuation:
-    @var,
-    evaluate,
-    differentiate,
-    start_parameters!,
-    target_parameters!,
-    track!,
-    solve,
-    real_solutions,
-    solutions,
-    solution,
-    rand_subspace,
-    randn,
-    System,
-    ParameterHomotopy,
-    Expression,
-    Tracker,
-    Variable,
-    track,
-    newton=#
 import LinearAlgebra: norm, qr, rank, eigvals, eigvecs, svd, nullspace, zeros
 import Plots: plot, scatter!, Animation, frame, cgrad, heatmap, gif, RGBA
 using Plots.PlotMeasures
@@ -76,19 +55,19 @@ mutable struct SemialgebraicSet
         equalities::Vector{Expression},
         inequalities::Vector{Expression},
         numsamples::Int;
-        tol::Float64 = 1e-8 #For determining the dimension
+        tol::Float64 = 1e-8, #For determining the dimension
     )
         fullequations = vcat(equalities, inequalities)
         jacobian = hcat([differentiate(eq, variables) for eq in fullequations]...)
 
         #INFO: We assume that the inequalities cut out a full-dimensional set
         if length(equalities)==0
-            Ωs = [randn(Float64, length(variables)) for _ = 1:numsamples]
+            Ωs = [randn(Float64, length(variables)) for _ in 1:numsamples]
             d = length(variables)
         else
-            Ωs, d = sample_from_algebraicset(variables, equalities, jacobian, numsamples; tol=tol)
+            Ωs, d = sample_from_algebraicset(variables, equalities, jacobian, numsamples; tol = tol)
         end
-        all_samples = project_to_feasible_points(Ωs, variables, equalities, inequalities; tol=tol)
+        all_samples = project_to_feasible_points(Ωs, variables, equalities, inequalities; tol = tol)
 
         #TODO Only compute EDSystem once
         @var u[1:length(variables)]
@@ -99,25 +78,11 @@ mutable struct SemialgebraicSet
         p0 = randn(Float64, length(variables))
         H = ParameterHomotopy(EDSystem, start_parameters = p0, target_parameters = p0)
         EDTracker = TrackerWithStartSolution(Tracker(H), [])
-        new(
-            variables,
-            equalities,
-            inequalities,
-            fullequations,
-            jacobian,
-            all_samples,
-            EDTracker,
-            d
-        )
+        new(variables, equalities, inequalities, fullequations, jacobian, all_samples, EDTracker, d)
     end
 
     # Given implicit equations, sample points from the corresponding variety and return the struct
-    function SemialgebraicSet(
-        equalities::Function,
-        inequalities::Function,
-        N::Int,
-        numsamples::Int,
-    )
+    function SemialgebraicSet(equalities::Function, inequalities::Function, N::Int, numsamples::Int)
         @var variables[1:N]
         algeqnz = equalities(variables)
         algineqnz = inequalities(variables)
@@ -131,10 +96,7 @@ mutable struct SemialgebraicSet
     end
 
     # Implicit Equations, no sampling, no variables
-    function SemialgebraicSet(
-        equalities::Vector{Expression},
-        inequalities::Vector{Expression},
-    )
+    function SemialgebraicSet(equalities::Vector{Expression}, inequalities::Vector{Expression})
         F = System(vcat(equalities, inequalities))
         SemialgebraicSet(F.variables, equalities, inequalities, 0)
     end
@@ -148,7 +110,7 @@ mutable struct SemialgebraicSet
         SemialgebraicSet(variables, equalities, inequalities, 0)
     end
 
-        function Base.show(io::IO, G::SemialgebraicSet)
+    function Base.show(io::IO, G::SemialgebraicSet)
         print(
             "$(typeof(G))(variables: $(G.variables), \nequalities: $(G.equalities), \ninequalities: $(G.inequalities)$(isempty(G.samples) ? ")" : ", \nsamples: $(length(G.samples)<5 ? G.samples : G.samples[1:5]))")",
         )
@@ -158,13 +120,11 @@ mutable struct SemialgebraicSet
     Compute Samples from a semialgebraic set by first solving the polynomial equality
     system via HomotopyContinuation (intersection with random hyperplanes)
     =#
-    function sample_from_algebraicset(variables, equalities, jacobian, numsamples; tol=1e-8)
+    function sample_from_algebraicset(variables, equalities, jacobian, numsamples; tol = 1e-8)
         randL, rand_point = nothing, randn(ComplexF64, length(variables))
         d =
-            length(variables) - rank(
-                evaluate(jacobian[:, 1:length(equalities)], variables=>rand_point);
-                atol = tol,
-            )
+            length(variables) -
+            rank(evaluate(jacobian[:, 1:length(equalities)], variables=>rand_point); atol = tol)
         Ωs = []
         if numsamples > 0
             randL = rand_subspace(length(variables); codim = d)
@@ -175,17 +135,13 @@ mutable struct SemialgebraicSet
                 show_progress = true,
             )
         end
-        for _ = 1:numsamples
+        for _ in 1:numsamples
             newΩs = solve(
                 equalities,
                 solutions();
                 variables = variables,
                 start_subspace = randL,
-                target_subspace = rand_subspace(
-                    length(variables);
-                    codim = d,
-                    real = true,
-                ),
+                target_subspace = rand_subspace(length(variables); codim = d, real = true),
                 transform_result = (R, p) -> real_solutions(R),
                 flatten = true,
                 show_progress = true,
@@ -199,13 +155,11 @@ mutable struct SemialgebraicSet
     #=
     Apply Newton's method to points in space to project them to feasible points
     =#
-    function project_to_feasible_points(Ωs, variables, equalities, inequalities; tol=1e-8)
+    function project_to_feasible_points(Ωs, variables, equalities, inequalities; tol = 1e-8)
         Ωs = filter(t -> norm(t)<1e4, Ωs)
         all_samples = Vector{Vector{Float64}}([])
         for q in Ωs
-            violated_indices = [
-                i for (i, eq) in enumerate(inequalities) if evaluate(eq, variables=>q)<=-tol
-            ]
+            violated_indices = [i for (i, eq) in enumerate(inequalities) if evaluate(eq, variables=>q)<=-tol]
             new_equations = vcat(equalities, inequalities[violated_indices])
             new_F = System(new_equations, variables = variables)
             cur_p, convergence = q, false
@@ -215,10 +169,8 @@ mutable struct SemialgebraicSet
                     break
                 end
                 cur_p = real.(newton_result.x)
-                violated_indices = [
-                    i for (i, eq) in enumerate(inequalities) if
-                    evaluate(eq, variables=>cur_p)<=-tol
-                ]
+                violated_indices =
+                    [i for (i, eq) in enumerate(inequalities) if evaluate(eq, variables=>cur_p)<=-tol]
                 if isempty(violated_indices)
                     convergence = true
                     break
@@ -247,11 +199,26 @@ end
 Add Samples to an already existing SemialgebraicSet. Throws an
 error if the samples are not feasible.
 =#
-function addSamples!(G::SemialgebraicSet, newSamples; tol=1e-12)
-    if !all(pt->length(pt)==ambient_dimension(G) && any(t -> Base.abs(t) < tol, evaluate(G.equalities, G.variables=>pt)) && any(t-> t < -tol, evaluate(G.inequalities, G.variables=>pt)), newsamples)
+function addSamples!(G::SemialgebraicSet, newSamples; tol = 1e-12)
+    if !all(
+        pt->length(pt)==ambient_dimension(G) &&
+            any(t -> Base.abs(t) < tol, evaluate(G.equalities, G.variables=>pt)) &&
+            any(t->t < -tol, evaluate(G.inequalities, G.variables=>pt)),
+        newsamples,
+    )
         for pt in newSamples
-            violated_indices = vcat([i for (i,eq) in enumerate(G.equalities) if Base.abs(evaluate(eq,G.variables=>pt))>=tol], [i+length(G.equalities) for (i,eq) in enumerate(G.inequalities) if evaluate(eq,G.variables=>pt)<-tol])
-            isempty(violated_indices) || throw(error("Some of the new samples do not satisfy the constraints of the Semialgebraic set. The (in-)equatlities with indices $(violated_indices) are violated for the point $(pt)."))
+            violated_indices = vcat(
+                [i for (i, eq) in enumerate(G.equalities) if Base.abs(evaluate(eq, G.variables=>pt))>=tol],
+                [
+                    i+length(G.equalities) for
+                    (i, eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>pt)<-tol
+                ],
+            )
+            isempty(violated_indices) || throw(
+                error(
+                    "Some of the new samples do not satisfy the constraints of the Semialgebraic set. The (in-)equatlities with indices $(violated_indices) are violated for the point $(pt).",
+                ),
+            )
         end
     end
     setfield!(G, :samples, vcat(newSamples, G.samples))
@@ -265,13 +232,13 @@ function resolveSingularity(
     p,
     G::SemialgebraicSet,
     Q::Function,
-    evaluateobjectivefunctiongradient;
+    gradient_objectivefunction;
     traditional_newton = true,
 )
     if Q(q) < Q(p)
         return (q, true)
     else
-        for _ = 1:5
+        for _ in 1:5
             q = gaussnewtonstep(
                 G,
                 p + 1e-3*randn(Float64, length(p));
@@ -299,8 +266,7 @@ function gaussnewtonstep_lagrange(
 )
     cur_p = Base.copy(p)
     # A posteriori correction to the inequality constraints
-    violated_indices =
-        [i for (i, eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=-tol]
+    violated_indices = [i for (i, eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=-tol]
     new_equations = vcat(G.equalities, G.inequalities[violated_indices])
     new_F = System(new_equations, variables = G.variables)
     while !isempty(violated_indices)
@@ -309,10 +275,8 @@ function gaussnewtonstep_lagrange(
             return cur_p, false
         end
         cur_p = real.(newton_result.x)
-        violated_indices = [
-            i for (i, eq) in enumerate(G.inequalities) if
-            evaluate(eq, G.variables=>cur_p)<=-tol
-        ]
+        violated_indices =
+            [i for (i, eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>cur_p)<=-tol]
         new_equations = vcat(G.equalities, G.inequalities[violated_indices])
         new_F = System(new_equations, variables = G.variables)
     end
@@ -320,14 +284,7 @@ function gaussnewtonstep_lagrange(
 end
 
 
-function traditional_newton_correct(
-    equations,
-    jacobian,
-    variables,
-    p;
-    tol = 1e-13,
-    maxsteps = 50,
-)
+function traditional_newton_correct(equations, jacobian, variables, p; tol = 1e-13, maxsteps = 50)
     global q = Base.copy(p)
     global qnew = q
     new_equations = Base.copy(equations)
@@ -337,16 +294,14 @@ function traditional_newton_correct(
         # Randomize the linear system of equations
         stress_dimension = size(nullspace(J; atol = 1e-8))[2]
         if stress_dimension > 0
-            rand_mat =
-                randn(Float64, length(equations) - stress_dimension, length(equations))
+            rand_mat = randn(Float64, length(equations) - stress_dimension, length(equations))
             new_equations = rand_mat*equations
             J = rand_mat*J
         else
             new_equations = equations
         end
         qnew = q - damping * (J' \ evaluate(new_equations, G.variables=>q))
-        if norm(evaluate(equations, variables=>qnew), Inf) <
-           norm(evaluate(equations, G.variables=>q), Inf)
+        if norm(evaluate(equations, variables=>qnew), Inf) < norm(evaluate(equations, G.variables=>q), Inf)
             global damping = damping*1.2
         else
             global damping = damping/2
@@ -363,14 +318,7 @@ function traditional_newton_correct(
 end
 
 
-function symmetric_newton_correct(
-    equations,
-    jacobian,
-    variables,
-    p;
-    tol = 1e-13,
-    maxsteps = 50,
-)
+function symmetric_newton_correct(equations, jacobian, variables, p; tol = 1e-13, maxsteps = 50)
     global q = Base.copy(p)
     global qnew = q
     new_equations = Base.copy(equations)
@@ -387,8 +335,7 @@ function symmetric_newton_correct(
     while length(equations)>0 && norm(evaluate.(equations, variables=>q), Inf) > tol
         # damped Newton's method
         qnew = q - damping * (J' \ evaluate(new_equations, G.variables=>q))
-        if norm(evaluate(equations, variables=>qnew), Inf) <
-           norm(evaluate(equations, G.variables=>q), Inf)
+        if norm(evaluate(equations, variables=>qnew), Inf) < norm(evaluate(equations, G.variables=>q), Inf)
             global damping = damping*1.2
         else
             global damping = damping/2
@@ -418,24 +365,19 @@ function gaussnewtonstep(
     jac = G.jacobian[:, 1:length(G.equalities)]
     global damping = 0.2
     global q =
-        traditional_newton ?
-        traditional_newton_correct(G.equalities, jac, G.variables, p; tol = tol) :
+        traditional_newton ? traditional_newton_correct(G.equalities, jac, G.variables, p; tol = tol) :
         symmetric_newton_correct(G.equalities, jac, G.variables, p; tol = tol)
 
     # A posteriori correction to the inequality constraints
     global damping = 0.2
-    violated_indices =
-        [i for (i, eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=-tol]
+    violated_indices = [i for (i, eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=-tol]
     new_equations = vcat(G.equalities, G.inequalities[violated_indices])
     jac = G.jacobian[:, vcat(1:length(G.equalities), violated_indices)]
     while length(violated_indices) > 0
         global q =
-            traditional_newton ?
-            traditional_newton_correct(new_equations, jac, G.variables, q; tol = tol) :
+            traditional_newton ? traditional_newton_correct(new_equations, jac, G.variables, q; tol = tol) :
             symmetric_newton_correct(new_equations, jac, G.variables; tol = tol)
-        violated_indices = [
-            i for (i, eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=-tol
-        ]
+        violated_indices = [i for (i, eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=-tol]
         new_equations = vcat(G.equalities, G.inequalities[violated_indices])
         jac = G.jacobian[:, vcat(1:length(G.equalities), violated_indices)]
     end
@@ -466,17 +408,13 @@ function EDStep_HC(
             try
                 q, success = gaussnewtonstep_lagrange(G, [entry.re for entry in result], q)
                 if !success
-                    throw(
-                        error(
-                            "Newton's method did not converge! Trying smaller incremental steps.",
-                        ),
-                    )
+                    throw(error("Newton's method did not converge! Trying smaller incremental steps."))
                 end
                 return q, true
             catch e
                 @warn e
                 q0 = Base.copy(p)
-                for i = 1:amount_Euler_steps
+                for i in 1:amount_Euler_steps
                     setStartSolution(G.EDTracker, vcat(q0, [0.0 for _ in G.equalities]))
                     start_parameters!(G.EDTracker.tracker, q0)
                     q = q0+(1/amount_Euler_steps)*stepsize*v
@@ -484,11 +422,7 @@ function EDStep_HC(
                     tracker = track(G.EDTracker.tracker, G.EDTracker.startSolution)
                     cur_result = solution(tracker)
                     if all(entry->Base.abs(entry.im)<1e-6, cur_result)
-                        q, success = gaussnewtonstep_lagrange(
-                            G,
-                            [entry.re for entry in cur_result],
-                            q,
-                        )
+                        q, success = gaussnewtonstep_lagrange(G, [entry.re for entry in cur_result], q)
                         if !success
                             return q0, false
                         end
@@ -504,12 +438,10 @@ function EDStep_HC(
     else
         global q = p+stepsize*(1/(amount_Euler_steps+1))*v
         global currentSolution = G.EDTracker.startSolution
-        global currentSolution, _ =
-            gaussnewtonstep(G, q; traditional_newton = traditional_newton)
-        for step = 1:amount_Euler_steps
+        global currentSolution, _ = gaussnewtonstep(G, q; traditional_newton = traditional_newton)
+        for step in 1:amount_Euler_steps
             q = p+stepsize*((step+1)/(amount_Euler_steps+1))*v
-            global currentSolution, _ =
-                gaussnewtonstep(G, q; traditional_newton = traditional_newton)
+            global currentSolution, _ = gaussnewtonstep(G, q; traditional_newton = traditional_newton)
         end
         return currentSolution[1:length(q)], true
     end
@@ -520,21 +452,11 @@ Determines, which optimization algorithm to use
 =#
 function stepchoice(constraintset, whichstep, stepsize, p, v; traditional_newton = true)
     if whichstep=="gaussnewtonstep" || whichstep=="Algorithm 0"
-        return (gaussnewtonstep(
-            constraintset,
-            p+stepsize*v;
-            traditional_newton = traditional_newton,
-        ))
+        return (gaussnewtonstep(constraintset, p+stepsize*v; traditional_newton = traditional_newton))
     elseif whichstep=="gaussnewtonretraction"||whichstep=="newton"||whichstep=="Algorithm 1"
         return (EDStep_HC(constraintset, p, stepsize, v; homotopyMethod = "newton"))
     elseif whichstep=="EDStep"||whichstep=="Algorithm 2"
-        return (EDStep_HC(
-            constraintset,
-            p,
-            stepsize,
-            v;
-            homotopyMethod = "HomotopyContinuation",
-        ))
+        return (EDStep_HC(constraintset, p, stepsize, v; homotopyMethod = "HomotopyContinuation"))
     else
         throw(error("A step method needs to be provided!"))
     end
@@ -546,31 +468,25 @@ end
 function isMinimum(
     G::SemialgebraicSet,
     Q::Function,
-    evaluateobjectivefunctiongradient,
+    gradient_objectivefunction,
     p::Vector;
     tol = 1e-4,
     criticaltol = 1e-3,
     traditional_newton = true,
 )
     H = hessian(Q, p)
-    active_indices = [
-        i for (i, eq) in enumerate(G.fullequations) if
-        isapprox(evaluate(eq, G.variables=>p), 0, atol = tol)
-    ]
+    active_indices =
+        [i for (i, eq) in enumerate(G.fullequations) if isapprox(evaluate(eq, G.variables=>p), 0, atol = tol)]
     active_equations = G.fullequations[active_indices]
     if length(active_indices)==0
-        Tp = nullspace(zeros(Float64, length(G.variables), length(G.variables)))
+        Tp = nullspace(zeros(Float64, ambient_dimension(G), ambient_dimension(G)))
     else
         active_jacobian = evaluate(G.jacobian[:, active_indices], G.variables=>p)
         Tp = nullspace(active_jacobian')
         stress_dimension = size(nullspace(active_jacobian; atol = tol))[2]
         # Randomize system to guarantee LICQ
         if stress_dimension > 0
-            rand_mat = randn(
-                Float64,
-                length(active_equations) - stress_dimension,
-                length(active_equations),
-            )
+            rand_mat = randn(Float64, length(active_equations) - stress_dimension, length(active_equations))
             active_equations = rand_mat*active_equations
         end
     end
@@ -578,10 +494,8 @@ function isMinimum(
 
     if length(active_equations)>0
         HConstraints = [
-            evaluate.(
-                differentiate(differentiate(eq, G.variables), G.variables),
-                G.variables=>p,
-            ) for eq in active_equations
+            evaluate.(differentiate(differentiate(eq, G.variables), G.variables), G.variables=>p) for
+            eq in active_equations
         ]
         # Taylor Approximation of x, since only the Hessian is of interest anyway
         Qalg = Q(p)+(G.variables-p)'*gradient(Q, p)+0.5*(G.variables-p)'*H*(G.variables-p)
@@ -589,7 +503,7 @@ function isMinimum(
         L = Qalg+λ'*active_equations
         ∇L = differentiate(L, vcat(G.variables, λ))
         gL = Matrix{Float64}(evaluate(differentiate(∇L, λ), G.variables=>p))
-        bL = -evaluate.(evaluate(∇L, G.variables=>p), λ=>[0 for _ = 1:length(λ)])
+        bL = -evaluate.(evaluate(∇L, G.variables=>p), λ=>[0 for _ in 1:length(λ)])
         λ0 = map(t->(t==NaN || t==Inf) ? 0 : t, gL\bL)
         λ0 = any(t->t>0, λ0[(length(G.equalities) + 1):end]) ? -λ0 : λ0
         Htotal = H+λ0'*HConstraints
@@ -610,7 +524,7 @@ function isMinimum(
     else
         q = gaussnewtonstep(
             G,
-            p - 1e-2 * evaluateobjectivefunctiongradient(p);
+            p - 1e-2 * gradient_objectivefunction(p);
             initialtime = Base.time(),
             maxseconds = 10,
             traditional_newton = true,
@@ -625,7 +539,7 @@ The momentum strategy only relies on an Armijo backtracking linesearch
 function backtracking_linesearch_momentum(
     Q::Function,
     G::SemialgebraicSet,
-    evaluateobjectivefunctiongradient::Function,
+    gradient_objectivefunction::Function,
     p0::Vector,
     stepsize::Float64;
     whichstep = "EDStep",
@@ -636,7 +550,7 @@ function backtracking_linesearch_momentum(
     s = 0.9,
     traditional_newton = true,
 )
-    _, _, basegradient = get_NTv(p0, G, evaluateobjectivefunctiongradient)
+    _, _, basegradient = get_NTv(p0, G, gradient_objectivefunction)
     α = [stepsize]
     p = Base.copy(p0)
     while length(α) <= 7 && time()-initialtime <= maxseconds
@@ -656,18 +570,18 @@ function backtracking_linesearch_momentum(
             continue
         end
         if (Q(q) <= Q(p0) - r*α[end]*basegradient'*basegradient && success)
-            _, Tq, vq = get_NTv(q, G, evaluateobjectivefunctiongradient)
+            _, Tq, vq = get_NTv(q, G, gradient_objectivefunction)
             return q, Tq, vq, success, 1.25*α[end]
         end
         if (success)
             push!(α, α[end]/2)
             p = q
         else
-            _, Tp, vp = get_NTv(p, G, evaluateobjectivefunctiongradient)
+            _, Tp, vp = get_NTv(p, G, gradient_objectivefunction)
             return p, Tp, vp, success, α[end]
         end
     end
-    _, Tq, vq = get_NTv(q, G, evaluateobjectivefunctiongradient)
+    _, Tq, vq = get_NTv(q, G, gradient_objectivefunction)
     return q, Tq, vq, success, α[end]
 end
 
@@ -679,7 +593,7 @@ This particular method can be found in Nocedal & Wright: Numerical Optimization
 function backtracking_linesearch(
     Q::Function,
     G::SemialgebraicSet,
-    evaluateobjectivefunctiongradient::Function,
+    gradient_objectivefunction::Function,
     p0::Vector,
     stepsize::Float64;
     whichstep = "EDStep",
@@ -690,7 +604,7 @@ function backtracking_linesearch(
     s = 0.9,
     traditional_newton = true,
 )
-    _, _, basegradient = get_NTv(p0, G, evaluateobjectivefunctiongradient)
+    _, _, basegradient = get_NTv(p0, G, gradient_objectivefunction)
     α = [0, stepsize]
     p = Base.copy(p0)
     while true
@@ -709,21 +623,16 @@ function backtracking_linesearch(
             α = [α[1], (α[1]+α[2])/2]
             continue
         end
-        _, Tq, vq = get_NTv(q, G, evaluateobjectivefunctiongradient)
+        _, Tq, vq = get_NTv(q, G, gradient_objectivefunction)
         if time()-initialtime > maxseconds
             return q, Tq, vq, success, α[end]
         end
-        if (
-            (
-                Q(q) > Q(p0) - r*α[end]*basegradient'*basegradient ||
-                (Q(q) > Q(p0) && q!=p0)
-            ) && success
-        )
+        if ((Q(q) > Q(p0) - r*α[end]*basegradient'*basegradient || (Q(q) > Q(p0) && q!=p0)) && success)
             helper = zoom(
                 α[end - 1],
                 α[end],
                 Q,
-                evaluateobjectivefunctiongradient,
+                gradient_objectivefunction,
                 G,
                 whichstep,
                 p0,
@@ -734,7 +643,7 @@ function backtracking_linesearch(
                 maxseconds,
                 traditional_newton,
             )
-            _, Tq, vq = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
+            _, Tq, vq = get_NTv(helper[1], G, gradient_objectivefunction)
             return helper[1], Tq, vq, helper[2], helper[end]
         end
         if Base.abs(basegradient'*vq) <= s*Base.abs(basegradient'*basegradient) && success
@@ -745,7 +654,7 @@ function backtracking_linesearch(
                 α[end],
                 α[end - 1],
                 Q,
-                evaluateobjectivefunctiongradient,
+                gradient_objectivefunction,
                 G,
                 whichstep,
                 p0,
@@ -756,14 +665,14 @@ function backtracking_linesearch(
                 maxseconds,
                 traditional_newton,
             )
-            _, Tq, vq = get_NTv(helper[1], G, evaluateobjectivefunctiongradient)
+            _, Tq, vq = get_NTv(helper[1], G, gradient_objectivefunction)
             return helper[1], Tq, vq, helper[2], helper[end]
         end
         if (success)
             push!(α, 2*α[end])
             p = q
         else
-            _, Tp, vp = get_NTv(p, G, evaluateobjectivefunctiongradient)
+            _, Tp, vp = get_NTv(p, G, gradient_objectivefunction)
             return p, Tp, vp, success, α[end]
         end
         deleteat!(α, 1)
@@ -780,7 +689,7 @@ function zoom(
     αlo,
     αhi,
     Q,
-    evaluateobjectivefunctiongradient,
+    gradient_objectivefunction,
     G,
     whichstep,
     p0,
@@ -791,35 +700,22 @@ function zoom(
     maxseconds,
     traditional_newton,
 )
-    qlo, suclo = stepchoice(
-        G,
-        whichstep,
-        αlo,
-        p0,
-        basegradient;
-        traditional_newton = traditional_newton,
-    )
+    qlo, suclo = stepchoice(G, whichstep, αlo, p0, basegradient; traditional_newton = traditional_newton)
     # To not get stuck in the iteration, we use a for loop instead of a while loop
     # TODO Add a more meaningful stopping criterion
     index = 1
     while index <= 7
         global α = 0.5*(αlo+αhi)
         try
-            global q, success = stepchoice(
-                G,
-                whichstep,
-                α,
-                p0,
-                basegradient;
-                traditional_newton = traditional_newton,
-            )
+            global q, success =
+                stepchoice(G, whichstep, α, p0, basegradient; traditional_newton = traditional_newton)
         catch e
             @warn e
             αlo = αlo < αhi ? αlo : 0.5*(αlo+αhi)
             αhi = αlo < αhi ? 0.5*(αlo+αhi) : αhi
             continue
         end
-        _, _, vq = get_NTv(q, G, evaluateobjectivefunctiongradient)
+        _, _, vq = get_NTv(q, G, gradient_objectivefunction)
         if !success || time()-initialtime > maxseconds
             return q, success, α
         end
@@ -845,19 +741,14 @@ end
 #=
  Get the tangent and normal space of a SemialgebraicSet at a point q
 =#
-function get_NTv(
-    q,
-    G::SemialgebraicSet,
-    evaluateobjectivefunctiongradient::Function;
-    tol = 1e-8,
-)
+function get_NTv(q, G::SemialgebraicSet, gradient_objectivefunction::Function; tol = 1e-8)
     active_indices = [
         i for (i, eq) in enumerate(G.fullequations) if
         i>length(G.equalities) && Base.abs(evaluate(eq, G.variables=>q)) < tol
     ]
     full_jacobian = evaluate.(G.jacobian, G.variables => q)
     active_jacobian = full_jacobian[:, vcat(1:length(G.equalities), active_indices)]
-    ∇Qq = evaluateobjectivefunctiongradient(q)
+    ∇Qq = gradient_objectivefunction(q)
     w = -∇Qq
 
     violated_indices = []
@@ -865,8 +756,7 @@ function get_NTv(
         w'*full_jacobian[:, i] < tol ? push!(violated_indices, i) : nothing
     end
 
-    semiactive_jacobian =
-        full_jacobian[:, Vector{Int}(vcat(1:length(G.equalities), violated_indices))]
+    semiactive_jacobian = full_jacobian[:, Vector{Int}(vcat(1:length(G.equalities), violated_indices))]
 
     try
         global Q_active = svd(Matrix{Float64}(active_jacobian)).U
@@ -878,18 +768,18 @@ function get_NTv(
     end
 
     if length(G.equalities)==0 && length(active_indices)==0
-        Nq_active, Tq_active = [0.0 for _ = 1:length(G.variables)],
-        nullspace(zeros(Float64, length(G.variables), length(G.variables)))
+        Nq_active, Tq_active = [0.0 for _ in 1:ambient_dimension(G)],
+        nullspace(zeros(Float64, ambient_dimension(G), ambient_dimension(G)))
     else
         Tq_active = nullspace(active_jacobian')
-        Nq_active = Q_active[:, 1:(length(G.variables) - size(Tq_active)[2])] # O.N.B. for the normal space at q
+        Nq_active = Q_active[:, 1:(ambient_dimension(G) - size(Tq_active)[2])] # O.N.B. for the normal space at q
     end
 
     if length(G.equalities)==0 && length(violated_indices)==0
         return Nq_active, Tq_active, -∇Qq
     end
     Tq_violated = nullspace(semiactive_jacobian')
-    Nq_violated = Q_violated[:, 1:(length(G.variables) - size(Tq_violated)[2])] # O.N.B. for the normal (half-)space at q
+    Nq_violated = Q_violated[:, 1:(ambient_dimension(G) - size(Tq_violated)[2])] # O.N.B. for the normal (half-)space at q
     vq = w - Nq_violated * (Nq_violated' * w) # projected gradient -∇Q(p) onto the tangent cone, subtract the normal components
     @assert all(t->isapprox(t, 0, atol = tol), semiactive_jacobian'*vq)
     return Nq_active, Tq_active, vq
@@ -917,7 +807,7 @@ function takelocalsteps(
     tolerance,
     G::SemialgebraicSet,
     objectiveFunction::Function,
-    evaluateobjectivefunctiongradient::Function;
+    gradient_objectivefunction::Function;
     maxsteps = 6,
     maxstepsize = 4,
     decreasefactor = 2.5,
@@ -929,18 +819,18 @@ function takelocalsteps(
     θ_collect = [1],
     traditional_newton = true,
 )
-    _, Tp, vp = get_NTv(p, G, evaluateobjectivefunctiongradient)
+    _, Tp, vp = get_NTv(p, G, gradient_objectivefunction)
     T_collect, timesturned = [Tp], 0 # normal spaces and tangent spaces, columns of Np and Tp are orthonormal bases
     q_collect, v_collect, n_collect = [p], [vp], [norm(vp)] # qs=new points on G, vs=projected gradients, ns=norms of projected gradients
     global stepsize = Base.copy(ε0)
     global tangent_predictor, stepsize_collect =
         isempty(tangent_predictor) ? Base.copy(p) : tangent_predictor, [stepsize]
-    for _ = 1:maxsteps
+    for _ in 1:maxsteps
         if !momentum_strategy
             global q, Tq, vq, success, stepsize = backtracking_linesearch(
                 objectiveFunction,
                 G,
-                evaluateobjectivefunctiongradient,
+                gradient_objectivefunction,
                 q_collect[end],
                 Float64(stepsize);
                 whichstep,
@@ -957,14 +847,7 @@ function takelocalsteps(
         else
             # "Topics in Convex Optimisation" §5, Cambridge, Hamza Fawzi for implementation details
             y = (1-θ_collect[end])*q_collect[end] + θ_collect[end]*tangent_predictor
-            _q, success = stepchoice(
-                G,
-                whichstep,
-                1,
-                q_collect[end],
-                y-q_collect[end];
-                traditional_newton,
-            ) # Momentum Step
+            _q, success = stepchoice(G, whichstep, 1, q_collect[end], y-q_collect[end]; traditional_newton) # Momentum Step
             if !success
                 push!(θ_collect, θ_collect[end]/decreasefactor)
                 continue
@@ -972,7 +855,7 @@ function takelocalsteps(
             global q, Tq, vq, success, stepsize = backtracking_linesearch_momentum(
                 objectiveFunction,
                 G,
-                evaluateobjectivefunctiongradient,
+                gradient_objectivefunction,
                 _q,
                 Float64(stepsize);
                 whichstep,
@@ -1017,9 +900,7 @@ function takelocalsteps(
         stepsize = Base.minimum([
             Base.maximum([
                 success ?
-                stepsize*sqrt(
-                    v_collect[end - 1]'*v_collect[end - 1],
-                )/sqrt(v_collect[end]'*v_collect[end]) : 0.1*stepsize,
+                stepsize*sqrt(v_collect[end - 1]'*v_collect[end - 1])/sqrt(v_collect[end]'*v_collect[end]) : 0.1*stepsize,
                 1e-4,
             ]),
             maxstepsize,
@@ -1045,7 +926,7 @@ struct OptimizationResult
     initialstepsize::Any
     tolerance::Any
     converged::Any
-    constraintvariety::Any
+    semialgebraicset::Any
     objectivefunction::Any
     lastpointisoptimum::Any
 
@@ -1055,16 +936,7 @@ struct OptimizationResult
         )
     end
 
-    function OptimizationResult(
-        is_minimization,
-        ps,
-        ε0,
-        tolerance,
-        converged,
-        G,
-        Q,
-        lastpointisoptimum,
-    )
+    function OptimizationResult(is_minimization, ps, ε0, tolerance, converged, G, Q, lastpointisoptimum)
         new(is_minimization, ps, ε0, tolerance, converged, G, Q, lastpointisoptimum)
     end
 end
@@ -1090,36 +962,29 @@ function minimize(
     #TODO Rework minimality: We are not necessarily at a minimality, if resolveSingularity does not find any better point. => first setequations, then ismin
     global p = copy(p0) # initialize before updating `p` below
     ps = [p0] # record the *main steps* from p0, newp, newp, ... until converged
-    evaluateobjectivefunctiongradient = x -> gradient(objectiveFunction, x)
+    gradient_objectivefunction = x -> gradient(objectiveFunction, x)
     # initialize stepsize. Different to RieOpt! Logic: large projected gradient=>far away, large stepsize is admissible.
     global ε0 = initialstepsize
     global θ_collect, tangent_predictor = [Float64(momentum_factor)], Base.copy(p0)
     while (Base.time() - initialtime) <= maxseconds
         # update LSR, only store the *last local run*
-        global computedpoints,
-        _,
-        _,
-        q,
-        suggestedstepsize,
-        converged,
-        _,
-        θ_collect,
-        tangent_predictor = takelocalsteps(
-            p,
-            ε0,
-            tolerance,
-            G,
-            objectiveFunction,
-            evaluateobjectivefunctiongradient;
-            maxsteps = maxlocalsteps,
-            initialtime = initialtime,
-            maxseconds = maxseconds,
-            whichstep = whichstep,
-            momentum_strategy = momentum_strategy,
-            tangent_predictor = tangent_predictor,
-            θ_collect = θ_collect,
-            traditional_newton = traditional_newton,
-        )
+        global computedpoints, _, _, q, suggestedstepsize, converged, _, θ_collect, tangent_predictor =
+            takelocalsteps(
+                p,
+                ε0,
+                tolerance,
+                G,
+                objectiveFunction,
+                gradient_objectivefunction;
+                maxsteps = maxlocalsteps,
+                initialtime = initialtime,
+                maxseconds = maxseconds,
+                whichstep = whichstep,
+                momentum_strategy = momentum_strategy,
+                tangent_predictor = tangent_predictor,
+                θ_collect = θ_collect,
+                traditional_newton = traditional_newton,
+            )
         global ε0 = suggestedstepsize # update and try again!
         append!(ps, computedpoints)
         if converged
@@ -1128,7 +993,7 @@ function minimize(
                 optimality = isMinimum(
                     G,
                     objectiveFunction,
-                    evaluateobjectivefunctiongradient,
+                    gradient_objectivefunction,
                     ps[end];
                     traditional_newton = traditional_newton,
                     criticaltol = tolerance,
@@ -1145,12 +1010,12 @@ function minimize(
                         optimality,
                     )
                 end
-                println("Resolving")
+                @info "Resolving..."
                 _q, foundsomething = resolveSingularity(
                     q,
                     G,
                     objectiveFunction,
-                    evaluateobjectivefunctiongradient;
+                    gradient_objectivefunction;
                     traditional_newton = traditional_newton,
                 )
                 if foundsomething
@@ -1190,7 +1055,7 @@ function minimize(
                 optimality = isMinimum(
                     G,
                     objectiveFunction,
-                    evaluateobjectivefunctiongradient,
+                    gradient_objectivefunction,
                     ps[end];
                     traditional_newton = traditional_newton,
                     criticaltol = tolerance,
@@ -1237,13 +1102,8 @@ function minimize(
     if (Base.time() - initialtime) > maxseconds
         @warn "We ran out of time... Try setting `maxseconds` to a larger value than $(maxseconds)"
     end
-    optimality = isMinimum(
-        G,
-        objectiveFunction,
-        evaluateobjectivefunctiongradient,
-        ps[end];
-        criticaltol = tolerance,
-    )
+    optimality =
+        isMinimum(G, objectiveFunction, gradient_objectivefunction, ps[end]; criticaltol = tolerance)
     return OptimizationResult(
         true,
         ps,
@@ -1252,18 +1112,12 @@ function minimize(
         tolerance,
         converged,
         G,
-        evaluateobjectivefunctiongradient,
+        gradient_objectivefunction,
         optimality,
     )
 end
 
-function maximize(
-    p0,
-    tolerance,
-    G::SemialgebraicSet,
-    objectiveFunction::Function;
-    kwargs...,
-)
+function maximize(p0, tolerance, G::SemialgebraicSet, objectiveFunction::Function; kwargs...)
     optres = minimize(p0, tolerance, G, x->-objectiveFunction(x); kwargs...)
     return OptimizationResult(
         false,
@@ -1289,9 +1143,6 @@ function watch(
     sampling_resolution = 100,
     kwargs...,
 )
-    if canvas_size[1] != canvas_size[2]
-        @warn "Canvas is expected to be a square."
-    end
     ps = result.computedpoints
     samples = result.constraintvariety.samples
     if !isempty(samples)
@@ -1336,30 +1187,25 @@ function watch(
             left_margin = 16mm,
             legend = false,
             size = canvas_size,
-            tickfontsize = 16*canvas_size[1]/800,
+            tickfontsize = 16*sqrt(canvas_size[1]^2+canvas_size[2]^2)/(2*800),
             grid = false,
         )
 
-        x_array, y_array = [
-            fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for i = 0:sampling_resolution
-        ],
-        [fully[1]+j*(fully[2]-fully[1])/sampling_resolution for j = 0:sampling_resolution]
-        heatmap_array = [
-            [x_array[i + 1], y_array[j + 1]] for i = 0:sampling_resolution for
-            j = 0:sampling_resolution
-        ]
+        x_array, y_array =
+            [fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for i in 0:sampling_resolution],
+            [fully[1]+j*(fully[2]-fully[1])/sampling_resolution for j in 0:sampling_resolution]
+        heatmap_array =
+            [[x_array[i + 1], y_array[j + 1]] for i in 0:sampling_resolution for j in 0:sampling_resolution]
         for eq in result.constraintvariety.inequalities
-            heatmap_array = filter(
-                point->evaluate(eq, result.constraintvariety.variables=>point) >= 0,
-                heatmap_array,
-            )
+            heatmap_array =
+                filter(point->evaluate(eq, result.constraintvariety.variables=>point) >= 0, heatmap_array)
         end
         scatter!(
             initplt,
             [ar[1] for ar in heatmap_array],
             [ar[2] for ar in heatmap_array],
             markershape = :rect,
-            markersize = 4*(100/sampling_resolution)*(canvas_size[1]/800),
+            markersize = 4*(100/sampling_resolution)*(sqrt(canvas_size[1]^2+canvas_size[2]^2)/(2*800)),
             markerstrokewidth = 0,
             color = RGBA{Float64}(0.75, 0.75, 0.75),
         )
@@ -1413,9 +1259,6 @@ function draw(
     sampling_resolution = 100,
     kwargs...,
 )
-    if canvas_size[1] != canvas_size[2]
-        @warn "Canvas is expected to be a square."
-    end
     dim = length(result.computedpoints[1]) # dimension of the ambient space
     ps = result.computedpoints
     samples = result.constraintvariety.samples
@@ -1456,29 +1299,24 @@ function draw(
             legend = false,
             size = canvas_size,
             title = "Optimization Points",
-            titlefontsize = 20*canvas_size[1]/800,
-            tickfontsize = 18*canvas_size[1]/800,
+            titlefontsize = 20*sqrt(canvas_size[1]^2+canvas_size[2]^2)/(2*800),
+            tickfontsize = 18*sqrt(canvas_size[1]^2+canvas_size[2]^2)/(2*800),
         )
-        x_array, y_array = [
-            fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for i = 0:sampling_resolution
-        ],
-        [fully[1]+j*(fully[2]-fully[1])/sampling_resolution for j = 0:sampling_resolution]
-        heatmap_array = [
-            [x_array[i + 1], y_array[j + 1]] for i = 0:sampling_resolution for
-            j = 0:sampling_resolution
-        ]
+        x_array, y_array =
+            [fullx[1]+i*(fullx[2]-fullx[1])/sampling_resolution for i in 0:sampling_resolution],
+            [fully[1]+j*(fully[2]-fully[1])/sampling_resolution for j in 0:sampling_resolution]
+        heatmap_array =
+            [[x_array[i + 1], y_array[j + 1]] for i in 0:sampling_resolution for j in 0:sampling_resolution]
         for eq in result.constraintvariety.inequalities
-            heatmap_array = filter(
-                point->evaluate(eq, result.constraintvariety.variables=>point) >= 0,
-                heatmap_array,
-            )
+            heatmap_array =
+                filter(point->evaluate(eq, result.constraintvariety.variables=>point) >= 0, heatmap_array)
         end
         scatter!(
             initplt,
             [ar[1] for ar in heatmap_array],
             [ar[2] for ar in heatmap_array],
             markershape = :rect,
-            markersize = 4*(100/sampling_resolution)*(canvas_size[1]/800),
+            markersize = 4*(100/sampling_resolution)*sqrt(canvas_size[1]^2+canvas_size[2]^2)/(2*800),
             markerstrokewidth = 0,
             color = RGBA{Float64}(0.75, 0.75, 0.75),
         )
@@ -1486,26 +1324,12 @@ function draw(
             implicit_plot!(initplt, x->evaluate(eq, result.constraintvariety.variables=>x))
         end
         for q in ps
-            scatter!(
-                initplt,
-                [q[1]],
-                [q[2]],
-                legend = false,
-                color = :black,
-                xlims = fullx,
-                ylims = fully,
-            )
+            scatter!(initplt, [q[1]], [q[2]], legend = false, color = :black, xlims = fullx, ylims = fully)
         end
 
         localqs = ps[Int(ceil(length(ps) / 2)):end]
-        zoomx = [
-            minimum([q[1] for q in localqs]) - 0.025,
-            maximum([q[1] for q in localqs]) + 0.025,
-        ]
-        zoomy = [
-            minimum([q[2] for q in localqs]) - 0.025,
-            maximum([q[2] for q in localqs]) + 0.025,
-        ]
+        zoomx = [minimum([q[1] for q in localqs]) - 0.025, maximum([q[1] for q in localqs]) + 0.025]
+        zoomy = [minimum([q[2] for q in localqs]) - 0.025, maximum([q[2] for q in localqs]) + 0.025]
         initplt2 = plot(
             [],
             [],
@@ -1515,29 +1339,24 @@ function draw(
             legend = false,
             size = canvas_size,
             title = "Zoomed-In Optimization Points",
-            titlefontsize = 20*canvas_size[1]/800,
-            tickfontsize = 18*canvas_size[1]/800,
+            titlefontsize = 20*sqrt(canvas_size[1]^2+canvas_size[2]^2)/(2*800),
+            tickfontsize = 18*sqrt(canvas_size[1]^2+canvas_size[2]^2)/(2*800),
         )
-        x_array, y_array = [
-            zoomx[1]+i*(zoomx[2]-zoomx[1])/sampling_resolution for i = 0:sampling_resolution
-        ],
-        [zoomy[1]+j*(zoomy[2]-zoomy[1])/sampling_resolution for j = 0:sampling_resolution]
-        heatmap_array = [
-            [x_array[i + 1], y_array[j + 1]] for i = 0:sampling_resolution for
-            j = 0:sampling_resolution
-        ]
+        x_array, y_array =
+            [zoomx[1]+i*(zoomx[2]-zoomx[1])/sampling_resolution for i in 0:sampling_resolution],
+            [zoomy[1]+j*(zoomy[2]-zoomy[1])/sampling_resolution for j in 0:sampling_resolution]
+        heatmap_array =
+            [[x_array[i + 1], y_array[j + 1]] for i in 0:sampling_resolution for j in 0:sampling_resolution]
         for eq in result.constraintvariety.inequalities
-            heatmap_array = filter(
-                point->evaluate(eq, result.constraintvariety.variables=>point) >= 0,
-                heatmap_array,
-            )
+            heatmap_array =
+                filter(point->evaluate(eq, result.constraintvariety.variables=>point) >= 0, heatmap_array)
         end
         scatter!(
             initplt2,
             [ar[1] for ar in heatmap_array],
             [ar[2] for ar in heatmap_array],
             markershape = :rect,
-            markersize = 4*(100/sampling_resolution)*(canvas_size[1]/800),
+            markersize = 4*(100/sampling_resolution)*sqrt(canvas_size[1]^2+canvas_size[2]^2)/(2*800),
             markerstrokewidth = 0,
             color = RGBA{Float64}(0.75, 0.75, 0.75),
         )
@@ -1545,15 +1364,7 @@ function draw(
             implicit_plot!(initplt2, x->evaluate(eq, result.constraintvariety.variables=>x))
         end
         for q in localqs
-            scatter!(
-                initplt2,
-                [q[1]],
-                [q[2]],
-                legend = false,
-                color = :blue,
-                xlims = zoomx,
-                ylims = zoomy,
-            )
+            scatter!(initplt2, [q[1]], [q[2]], legend = false, color = :blue, xlims = zoomx, ylims = zoomy)
         end
 
         energy_values = [result.objectivefunction(p) for p in ps]
@@ -1564,8 +1375,8 @@ function draw(
             size = canvas_size,
             legend = false,
             title = "Objective Function Values",
-            titlefontsize = 20*canvas_size[1]/800,
-            tickfontsize = 18*canvas_size[1]/800,
+            titlefontsize = 20*sqrt(canvas_size[1]^2+canvas_size[2]^2)/(2*800),
+            tickfontsize = 18*sqrt(canvas_size[1]^2+canvas_size[2]^2)/(2*800),
         )
         plt = plot(
             initplt,

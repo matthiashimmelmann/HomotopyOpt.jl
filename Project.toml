@@ -13,8 +13,8 @@ Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 
 [compat]
 BenchmarkTools = "^1.5"
-ForwardDiff = "0.10"
 HomotopyContinuation = "2.9"
+ForwardDiff = "^1.0"
 ImplicitPlots = "^0.2"
 Plots = "1.39"
 julia = "^1.9"

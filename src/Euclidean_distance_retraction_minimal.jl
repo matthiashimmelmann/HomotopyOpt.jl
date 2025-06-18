@@ -21,20 +21,7 @@ import HomotopyContinuation:
     Variable,
     track
 import LinearAlgebra:
-    norm,
-    transpose,
-    qr,
-    rank,
-    normalize,
-    pinv,
-    eigvals,
-    abs,
-    eigvecs,
-    svd,
-    nullspace,
-    I,
-    Symmetric,
-    cholesky
+    norm, transpose, qr, rank, normalize, pinv, eigvals, abs, eigvecs, svd, nullspace, I, Symmetric, cholesky
 import Plots: plot, scatter!, Animation, frame
 import ForwardDiff: hessian, gradient
 import HomotopyContinuation
@@ -165,12 +152,7 @@ function setEquationsAtp!(G::ConstraintVariety, p; tol = 1e-5)
 end
 
 function gaussnewtonstep_HC(G::ConstraintVariety, initial_point, q; max_iters)
-    res = HomotopyContinuation.newton(
-        G.EDTracker.tracker.homotopy.F,
-        initial_point,
-        q;
-        max_iters = max_iters,
-    )
+    res = HomotopyContinuation.newton(G.EDTracker.tracker.homotopy.F, initial_point, q; max_iters = max_iters)
     #display(res)
     return real.(res.x), res.iters
 end
@@ -227,9 +209,7 @@ function EDStep_HC(
             display(result)
         end
         if all(entry->Base.abs(entry.im)<1e-4, result)
-            return [entry.re for entry in result[1:length(p)]],
-            tracker.accepted_steps,
-            tracker
+            return [entry.re for entry in result[1:length(p)]], tracker.accepted_steps, tracker
         else
             throw(error("Complex Space entered!"))
         end
@@ -253,15 +233,8 @@ function EDStep_HC(
                 #    global currentSolution = currentSolution .+ vcat(v*(1/(amount_Euler_steps+1)), [0. for _ in 1:(length(currentSolution)-length(v))])
             elseif euler_step=="RK2"
                 global currentSolution =
-                    currentSolution .+ RK2step(
-                        G.EDTracker,
-                        currentSolution,
-                        p,
-                        v,
-                        0,
-                        1/(amount_Euler_steps+1);
-                        trivial = true,
-                    )
+                    currentSolution .+
+                    RK2step(G.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1); trivial = true)
                 global linear_solves = linear_solves+1
             elseif euler_step=="implicit"
                 global currentSolution =
@@ -286,14 +259,7 @@ function EDStep_HC(
                             0,
                             1/(amount_Euler_steps+1);
                             trivial = true,
-                        )+implicitEulerStep(
-                            G.EDTracker,
-                            currentSolution,
-                            p,
-                            v,
-                            0,
-                            1/(amount_Euler_steps+1),
-                        )
+                        )+implicitEulerStep(G.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1))
                     )
             end
         else
@@ -307,7 +273,7 @@ function EDStep_HC(
             max_iters = amount_Euler_steps<=0 ? 400 : (euler_step=="newton" ? 10 : 9),
         )
         global linear_solves = linear_solves + gaussnewtonsolves
-        for step = 1:amount_Euler_steps
+        for step in 1:amount_Euler_steps
             q = p+((step+1)/(amount_Euler_steps+1))*v
             #prev_sol = currentSolution
             if euler_step=="explicit"
@@ -384,8 +350,7 @@ function EDStep_HC(
                 G,
                 currentSolution,
                 q;
-                max_iters = amount_Euler_steps==step ? 400 :
-                            (euler_step=="newton" ? 10 : 9),
+                max_iters = amount_Euler_steps==step ? 400 : (euler_step=="newton" ? 10 : 9),
             )
             global linear_solves = linear_solves + gaussnewtonsolves
         end
@@ -443,15 +408,8 @@ function EDStep(
                     )
             elseif euler_step=="RK2"
                 global currentSolution =
-                    currentSolution .+ RK2step(
-                        G.EDTracker,
-                        currentSolution,
-                        p,
-                        v,
-                        0,
-                        1/(amount_Euler_steps+1);
-                        trivial = true,
-                    )
+                    currentSolution .+
+                    RK2step(G.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1); trivial = true)
                 global linear_solves = linear_solves+1
             elseif euler_step=="implicit"
                 global currentSolution =
@@ -476,14 +434,7 @@ function EDStep(
                             0,
                             1/(amount_Euler_steps+1);
                             trivial = true,
-                        )+implicitEulerStep(
-                            G.EDTracker,
-                            currentSolution,
-                            p,
-                            v,
-                            0,
-                            1/(amount_Euler_steps+1),
-                        )
+                        )+implicitEulerStep(G.EDTracker, currentSolution, p, v, 0, 1/(amount_Euler_steps+1))
                     )
             end
         else
@@ -503,7 +454,7 @@ function EDStep(
             maxsteps = amount_Euler_steps<=0 ? 250 : (euler_step=="newton" ? 3 : 2),
         )
         global linear_solves = linear_solves + gaussnewtonsolves
-        for step = 1:amount_Euler_steps
+        for step in 1:amount_Euler_steps
             q = p+((step+1)/(amount_Euler_steps+1))*v
             #prev_sol = currentSolution
             if euler_step=="explicit"
@@ -605,34 +556,21 @@ function explicitEulerStep(
     trivial = false,
 )
     if trivial
-        return vcat(v*step_size, [0.0 for _ = 1:(length(q) - length(p))])
+        return vcat(v*step_size, [0.0 for _ in 1:(length(q) - length(p))])
     end
     dz = evaluate.(
         EDTracker.jacobian,
         vcat(EDTracker.variables, EDTracker.parameters) => vcat(q, p+prev_step*v),
     )
-    du = vcat(v*step_size, [0.0 for _ = 1:(length(q) - length(p))])
+    du = vcat(v*step_size, [0.0 for _ in 1:(length(q) - length(p))])
     return dz \ (du)
 end
 
-function RK2step(
-    EDTracker::TrackerWithStartSolution,
-    q,
-    p,
-    v,
-    prev_step,
-    step_size;
-    trivial = false,
-)
+function RK2step(EDTracker::TrackerWithStartSolution, q, p, v, prev_step, step_size; trivial = false)
     if trivial
         k1 = vcat(
             0.5*v*step_size,
-            [
-                0.0 for _ =
-                    1:(length(
-                        EDTracker.tracker.homotopy.F.interpreted.system.variables,
-                    ) - length(p))
-            ],
+            [0.0 for _ in 1:(length(EDTracker.tracker.homotopy.F.interpreted.system.variables) - length(p))],
         )
     else
         dz1 =
@@ -640,10 +578,7 @@ function RK2step(
                 EDTracker.jacobian,
                 vcat(EDTracker.variables, EDTracker.parameters) => vcat(q, p+prev_step*v),
             )
-        du1 = evaluate.(
-            EDTracker.jacobian_parameter,
-            vcat(EDTracker.variables, EDTracker.ptv) => vcat(q, v),
-        )
+        du1 = evaluate.(EDTracker.jacobian_parameter, vcat(EDTracker.variables, EDTracker.ptv) => vcat(q, v))
         k1 = dz1 \ (du1*0.5*step_size)
     end
     dz2 =
@@ -656,7 +591,8 @@ function RK2step(
         )
     du2 = evaluate.(
         EDTracker.jacobian_parameter,
-        vcat(EDTracker.tracker.homotopy.F.interpreted.system.variables, EDTracker.ptv) => vcat(q .+ k1, v),
+        vcat(EDTracker.tracker.homotopy.F.interpreted.system.variables, EDTracker.ptv) =>
+            vcat(q .+ k1, v),
     )
     return dz2 \ (du2*step_size)
 end
