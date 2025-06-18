@@ -60,99 +60,35 @@ end
  and samples from the variety.
 =#
 mutable struct SemialgebraicSet
-    variables::Any
-    equalities::Any
-    inequalities::Any
-    fullequations::Any
-    fulljacobian::Any
-    samples::Any
-    EDTracker::Any
+    variables::Vector
+    equalities::Vector
+    inequalities::Vector
+    fullequations::Vector
+    jacobian::Matrix
+    samples::Vector
+    EDTracker::TrackerWithStartSolution
+    dimension::Int
 
-    function Base.show(io::IO, G::SemialgebraicSet)
-        print(
-            "$(typeof(G))(variables: $(G.variables), equalities: $(G.equalities), inequalities: $(G.inequalities)$(isempty(G.samples) ? ")" : ", samples: $(G.samples))")",
-        )
-    end
-
-    # Given variables and HomotopyContinuation-based equations, sample points from the variety and return the corresponding struct
+    # Given variables and HomotopyContinuation-based equalities and inequalities,
+    # sample points from the equality constraints and return the corresponding struct
     function SemialgebraicSet(
         variables::Vector{Variable},
         equalities::Vector{Expression},
         inequalities::Vector{Expression},
-        numsamples::Int,
+        numsamples::Int;
+        tol::Float64 = 1e-8 #For determining the dimension
     )
-        tol = 1e-8
         fullequations = vcat(equalities, inequalities)
         jacobian = hcat([differentiate(eq, variables) for eq in fullequations]...)
+
+        #INFO: We assume that the inequalities cut out a full-dimensional set
         if length(equalities)==0
             Ωs = [randn(Float64, length(variables)) for _ = 1:numsamples]
+            d = length(variables)
         else
-            randL, rand_point = nothing, randn(ComplexF64, length(variables))
-            d =
-                length(variables) - rank(
-                    evaluate(jacobian[:, 1:length(equalities)], variables=>rand_point);
-                    atol = tol,
-                )
-            Ωs = []
-            if numsamples > 0
-                randL = rand_subspace(length(variables); codim = d)
-                randResult = solve(
-                    equalities;
-                    targetrandResult_subspace = randL,
-                    variables = variables,
-                    show_progress = true,
-                )
-            end
-            for _ = 1:numsamples
-                newΩs = solve(
-                    equalities,
-                    solutions();
-                    variables = variables,
-                    start_subspace = randL,
-                    target_subspace = rand_subspace(
-                        length(variables);
-                        codim = d,
-                        real = true,
-                    ),
-                    transform_result = (R, p) -> real_solutions(R),
-                    flatten = true,
-                    show_progress = true,
-                )
-                realsols = real_solutions(newΩs)
-                push!(Ωs, realsols...)
-            end
+            Ωs, d = sample_from_algebraicset(variables, equalities, jacobian, numsamples; tol=tol)
         end
-        Ωs = filter(t -> norm(t)<1e4, Ωs)
-        all_samples = []
-        for q in Ωs
-            violated_indices = [
-                i for (i, eq) in enumerate(inequalities) if evaluate(eq, variables=>q)<=-tol
-            ]
-            new_equations = vcat(equalities, inequalities[violated_indices])
-            new_F = System(new_equations, variables = variables)
-            cur_p, convergence = q, false
-            while !isempty(violated_indices)
-                newton_result = newton(new_F, cur_p)
-                if newton_result.return_code != :success
-                    break
-                end
-                cur_p = real.(newton_result.x)
-                violated_indices = [
-                    i for (i, eq) in enumerate(inequalities) if
-                    evaluate(eq, variables=>cur_p)<=-tol
-                ]
-                if isempty(violated_indices)
-                    convergence = true
-                    break
-                end
-                new_equations = vcat(equalities, inequalities[violated_indices])
-                new_F = System(new_equations, variables = variables)
-            end
-
-            if convergence
-                push!(all_samples, cur_p)
-            end
-        end
+        all_samples = project_to_feasible_points(Ωs, variables, equalities, inequalities; tol=tol)
 
         #TODO Only compute EDSystem once
         @var u[1:length(variables)]
@@ -171,6 +107,7 @@ mutable struct SemialgebraicSet
             jacobian,
             all_samples,
             EDTracker,
+            d
         )
     end
 
@@ -211,12 +148,112 @@ mutable struct SemialgebraicSet
         SemialgebraicSet(variables, equalities, inequalities, 0)
     end
 
+        function Base.show(io::IO, G::SemialgebraicSet)
+        print(
+            "$(typeof(G))(variables: $(G.variables), \nequalities: $(G.equalities), \ninequalities: $(G.inequalities)$(isempty(G.samples) ? ")" : ", \nsamples: $(length(G.samples)<5 ? G.samples : G.samples[1:5]))")",
+        )
+    end
+
+    #=
+    Compute Samples from a semialgebraic set by first solving the polynomial equality
+    system via HomotopyContinuation (intersection with random hyperplanes)
+    =#
+    function sample_from_algebraicset(variables, equalities, jacobian, numsamples; tol=1e-8)
+        randL, rand_point = nothing, randn(ComplexF64, length(variables))
+        d =
+            length(variables) - rank(
+                evaluate(jacobian[:, 1:length(equalities)], variables=>rand_point);
+                atol = tol,
+            )
+        Ωs = []
+        if numsamples > 0
+            randL = rand_subspace(length(variables); codim = d)
+            randResult = solve(
+                equalities;
+                targetrandResult_subspace = randL,
+                variables = variables,
+                show_progress = true,
+            )
+        end
+        for _ = 1:numsamples
+            newΩs = solve(
+                equalities,
+                solutions();
+                variables = variables,
+                start_subspace = randL,
+                target_subspace = rand_subspace(
+                    length(variables);
+                    codim = d,
+                    real = true,
+                ),
+                transform_result = (R, p) -> real_solutions(R),
+                flatten = true,
+                show_progress = true,
+            )
+            realsols = real_solutions(newΩs)
+            push!(Ωs, realsols...)
+        end
+        return Ωs, d
+    end
+
+    #=
+    Apply Newton's method to points in space to project them to feasible points
+    =#
+    function project_to_feasible_points(Ωs, variables, equalities, inequalities; tol=1e-8)
+        Ωs = filter(t -> norm(t)<1e4, Ωs)
+        all_samples = Vector{Vector{Float64}}([])
+        for q in Ωs
+            violated_indices = [
+                i for (i, eq) in enumerate(inequalities) if evaluate(eq, variables=>q)<=-tol
+            ]
+            new_equations = vcat(equalities, inequalities[violated_indices])
+            new_F = System(new_equations, variables = variables)
+            cur_p, convergence = q, false
+            while !isempty(violated_indices)
+                newton_result = newton(new_F, cur_p)
+                if newton_result.return_code != :success
+                    break
+                end
+                cur_p = real.(newton_result.x)
+                violated_indices = [
+                    i for (i, eq) in enumerate(inequalities) if
+                    evaluate(eq, variables=>cur_p)<=-tol
+                ]
+                if isempty(violated_indices)
+                    convergence = true
+                    break
+                end
+                new_equations = vcat(equalities, inequalities[violated_indices])
+                new_F = System(new_equations, variables = variables)
+            end
+
+            if convergence
+                push!(all_samples, cur_p)
+            end
+        end
+        return all_samples
+    end
+
 end
 
 #=
-Add Samples to an already existing SemialgebraicSet
+Returns the ambient dimension of `G`
 =#
-function addSamples!(G::SemialgebraicSet, newSamples)
+function ambient_dimension(G::SemialgebraicSet)
+    return length(G.variables)
+end
+
+#=
+Add Samples to an already existing SemialgebraicSet. Throws an
+error if the samples are not feasible.
+=#
+function addSamples!(G::SemialgebraicSet, newSamples; tol=1e-12)
+    if !all(pt->length(pt)==ambient_dimension(G) && any(t -> Base.abs(t) < tol, evaluate(G.equalities, G.variables=>pt)) && any(t-> t < -tol, evaluate(G.inequalities, G.variables=>pt)), newsamples)
+        for pt in newSamples
+            violated_indices = vcat([i for (i,eq) in enumerate(G.equalities) if Base.abs(evaluate(eq,G.variables=>pt))>=tol], [i+length(G.equalities) for (i,eq) in enumerate(G.inequalities) if evaluate(eq,G.variables=>pt)<-tol])
+            isempty(violated_indices) || throw(error("Some of the new samples do not satisfy the constraints of the Semialgebraic set. The (in-)equatlities with indices $(violated_indices) are violated for the point $(pt)."))
+        end
+    end
     setfield!(G, :samples, vcat(newSamples, G.samples))
 end
 
@@ -378,7 +415,7 @@ function gaussnewtonstep(
     maxseconds = 100,
     traditional_newton = true,
 )
-    jac = G.fulljacobian[:, 1:length(G.equalities)]
+    jac = G.jacobian[:, 1:length(G.equalities)]
     global damping = 0.2
     global q =
         traditional_newton ?
@@ -390,7 +427,7 @@ function gaussnewtonstep(
     violated_indices =
         [i for (i, eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=-tol]
     new_equations = vcat(G.equalities, G.inequalities[violated_indices])
-    jac = G.fulljacobian[:, vcat(1:length(G.equalities), violated_indices)]
+    jac = G.jacobian[:, vcat(1:length(G.equalities), violated_indices)]
     while length(violated_indices) > 0
         global q =
             traditional_newton ?
@@ -400,7 +437,7 @@ function gaussnewtonstep(
             i for (i, eq) in enumerate(G.inequalities) if evaluate(eq, G.variables=>q)<=-tol
         ]
         new_equations = vcat(G.equalities, G.inequalities[violated_indices])
-        jac = G.fulljacobian[:, vcat(1:length(G.equalities), violated_indices)]
+        jac = G.jacobian[:, vcat(1:length(G.equalities), violated_indices)]
     end
     return q, true
 end
@@ -524,7 +561,7 @@ function isMinimum(
     if length(active_indices)==0
         Tp = nullspace(zeros(Float64, length(G.variables), length(G.variables)))
     else
-        active_jacobian = evaluate(G.fulljacobian[:, active_indices], G.variables=>p)
+        active_jacobian = evaluate(G.jacobian[:, active_indices], G.variables=>p)
         Tp = nullspace(active_jacobian')
         stress_dimension = size(nullspace(active_jacobian; atol = tol))[2]
         # Randomize system to guarantee LICQ
@@ -818,7 +855,7 @@ function get_NTv(
         i for (i, eq) in enumerate(G.fullequations) if
         i>length(G.equalities) && Base.abs(evaluate(eq, G.variables=>q)) < tol
     ]
-    full_jacobian = evaluate.(G.fulljacobian, G.variables => q)
+    full_jacobian = evaluate.(G.jacobian, G.variables => q)
     active_jacobian = full_jacobian[:, vcat(1:length(G.equalities), active_indices)]
     ∇Qq = evaluateobjectivefunctiongradient(q)
     w = -∇Qq
@@ -1014,7 +1051,7 @@ struct OptimizationResult
 
     function Base.show(io::IO, opt::OptimizationResult)
         print(
-            "$(typeof(opt))(is_minimization: $(opt.is_minimization), computedpoints: $(opt.computedpoints), tolerance: $(opt.tolerance), converged: $(opt.converged), lastpointisoptimum: $(opt.lastpointisoptimum))",
+            "$(typeof(opt))($(opt.is_minimization ? "minimization" : "maximization"), initialstepsize: $(opt.initialstepsize), tolerance: $(opt.tolerance), converged: $(opt.converged), lastpointisoptimum: $(opt.lastpointisoptimum), \ncomputedpoints: $(opt.computedpoints))",
         )
     end
 
